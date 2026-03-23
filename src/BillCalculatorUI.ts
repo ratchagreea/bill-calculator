@@ -1024,6 +1024,7 @@ export class BillCalculatorUI {
         }
 
         .summary-table-fixed {
+          box-sizing: border-box;
           border-right: 1px solid var(--table-border);
           background-color: var(--table-bg);
           position: relative;
@@ -1055,12 +1056,33 @@ export class BillCalculatorUI {
         }
 
         .summary-table-header-fixed {
+          width: var(--summary-person-col-width);
+          min-width: var(--summary-person-col-width);
+          max-width: var(--summary-person-col-width);
           display: flex;
           align-items: stretch;
-          border-right: 1px solid var(--table-border);
           background-color: var(--table-header-bg);
           color: var(--table-header-text);
-          box-shadow: 12px 0 18px -18px rgba(0, 0, 0, 0.55);
+        }
+
+        .summary-table-body-fixed {
+          width: var(--summary-person-col-width);
+          min-width: var(--summary-person-col-width);
+          max-width: var(--summary-person-col-width);
+        }
+
+        .summary-table-body-fixed table,
+        .summary-table-body-scroll table {
+          border-collapse: collapse;
+          border-spacing: 0;
+          margin: 0;
+        }
+
+        .summary-table-body-fixed table {
+          width: var(--summary-person-col-width);
+          min-width: var(--summary-person-col-width);
+          max-width: var(--summary-person-col-width);
+          table-layout: fixed;
         }
 
         .summary-header-fixed-cell,
@@ -1083,9 +1105,10 @@ export class BillCalculatorUI {
         .summary-header-fixed-cell {
           min-height: 100%;
           height: 100%;
-          min-width: var(--summary-person-col-width);
-          width: var(--summary-person-col-width);
-          max-width: var(--summary-person-col-width);
+          min-width: 100%;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
           justify-content: flex-start;
           padding: 16px;
         }
@@ -1705,7 +1728,45 @@ export class BillCalculatorUI {
   }
 
   private attachSummaryTableResizeSupport(): void {
-    window.addEventListener('resize', () => this.syncSummaryTableRowHeights());
+    window.addEventListener('resize', () => {
+      this.syncSummaryFixedColumnWidth();
+      this.syncSummaryTableRowHeights();
+    });
+  }
+
+  private syncSummaryFixedColumnWidth(): void {
+    const summaryContainer = document.querySelector('.summary-table-container') as HTMLElement | null;
+    const headerFixed = summaryContainer?.querySelector('.summary-table-header-fixed') as HTMLElement | null;
+    const bodyFixed = summaryContainer?.querySelector('.summary-table-body-fixed') as HTMLElement | null;
+    const bodyFixedTable = bodyFixed?.querySelector('table') as HTMLTableElement | null;
+    const bodyPersonCell = bodyFixed?.querySelector('.person-cell') as HTMLElement | null;
+
+    if (!summaryContainer || !headerFixed || !bodyFixed || !bodyFixedTable) {
+      return;
+    }
+
+    const measuredWidth = Math.ceil(
+      bodyFixedTable.getBoundingClientRect().width
+      || bodyFixed.getBoundingClientRect().width
+      || bodyPersonCell?.getBoundingClientRect().width
+      || 0
+    );
+
+    if (measuredWidth <= 0) {
+      return;
+    }
+
+    const resolvedWidth = `${measuredWidth}px`;
+    summaryContainer.style.setProperty('--summary-person-col-width', resolvedWidth);
+    headerFixed.style.width = resolvedWidth;
+    headerFixed.style.minWidth = resolvedWidth;
+    headerFixed.style.maxWidth = resolvedWidth;
+    bodyFixed.style.width = resolvedWidth;
+    bodyFixed.style.minWidth = resolvedWidth;
+    bodyFixed.style.maxWidth = resolvedWidth;
+    bodyFixedTable.style.width = resolvedWidth;
+    bodyFixedTable.style.minWidth = resolvedWidth;
+    bodyFixedTable.style.maxWidth = resolvedWidth;
   }
 
   private attachSummaryTableScrollSync(): void {
@@ -2844,6 +2905,7 @@ export class BillCalculatorUI {
     this.attachSummaryTableScrollSync();
     this.attachSummaryTableHoverEffects();
     window.requestAnimationFrame(() => {
+      this.syncSummaryFixedColumnWidth();
       this.restoreSummaryTableScrollLeft(preservedScrollLeft);
       this.syncSummaryTableRowHeights();
       this.restoreSummaryTableScrollLeft(preservedScrollLeft);
