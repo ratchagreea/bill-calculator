@@ -1578,6 +1578,52 @@ export class BillCalculatorUI {
           align-items: center;
           gap: 8px;
         }
+
+        .item-header-actions {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 6px;
+          width: 100%;
+        }
+
+        .item-action-btn {
+          border: none;
+          padding: 4px 8px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 10px;
+          font-weight: 600;
+          transition: background-color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+        }
+
+        .item-action-btn:hover {
+          transform: scale(1.05);
+        }
+
+        .item-action-btn:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .item-action-assign {
+          background-color: var(--btn-success);
+          color: white;
+        }
+
+        .item-action-assign:hover {
+          background-color: var(--btn-success-hover);
+        }
+
+        .item-action-clear {
+          background-color: var(--btn-secondary);
+          color: white;
+        }
+
+        .item-action-clear:hover {
+          background-color: var(--btn-secondary-hover);
+        }
         
         .item-name-price {
           text-align: center;
@@ -3594,6 +3640,51 @@ export class BillCalculatorUI {
     this.showToast(`Assigned ${unassignedItems.length} item(s) to everyone`);
   }
 
+  assignItemToAllPeople(itemId: string): void {
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    const item = bill?.items.find(existingItem => existingItem.id === itemId);
+    if (!bill || !item) return;
+
+    const allPersonIds = bill.persons.map(person => person.id);
+    const alreadyAssignedToAll = allPersonIds.length > 0
+      && allPersonIds.every(personId => item.dividers.includes(personId))
+      && item.dividers.length === allPersonIds.length;
+    if (allPersonIds.length === 0) {
+      this.showToast('Add people before assigning this item');
+      return;
+    }
+    if (alreadyAssignedToAll) {
+      this.showToast(`${item.name} is already assigned to everyone`);
+      return;
+    }
+
+    this.recordHistorySnapshot();
+    this.calculator.setItemDividers(this.currentBillId, itemId, allPersonIds);
+    this.updateSummaryTable();
+    this.saveDraftState();
+    this.showToast(`${item.name} assigned to everyone`);
+  }
+
+  clearItemAssignments(itemId: string): void {
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    const item = bill?.items.find(existingItem => existingItem.id === itemId);
+    if (!bill || !item) return;
+    if (item.dividers.length === 0) {
+      this.showToast(`${item.name} is already unassigned`);
+      return;
+    }
+
+    this.recordHistorySnapshot();
+    this.calculator.setItemDividers(this.currentBillId, itemId, []);
+    this.updateSummaryTable();
+    this.saveDraftState();
+    this.showToast(`${item.name} assignments cleared`);
+  }
+
   private updateSummaryTable(focusElementId?: string): void {
     if (!this.currentBillId) return;
 
@@ -3701,21 +3792,35 @@ export class BillCalculatorUI {
           </div>
           <div class="summary-table-header-scroll">
             <div class="summary-table-header-track">
-              ${visibleItems.map((item, index) => `
-                <div class="summary-table-header-cell ${item.dividers.length === 0 ? 'is-unassigned' : ''}" data-col-index="${index + 1}">
-                  <div class="summary-header-cell-content">
-                    <div class="summary-header-meta">
-                      ${item.name}<br>
-                      <small style="font-weight: normal; color: var(--text-secondary);">($${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</small><br>
-                      <small style="font-weight: normal; color: var(--text-secondary);">${item.dividers.length} ${item.dividers.length === 1 ? 'person' : 'people'}</small>
-                      ${item.dividers.length === 0 ? '<div class="summary-table-header-badge">Unassigned</div>' : ''}
+              ${visibleItems.map((item, index) => {
+                const allAssigned = bill.persons.length > 0
+                  && bill.persons.every(person => item.dividers.includes(person.id))
+                  && item.dividers.length === bill.persons.length;
+
+                return `
+                  <div class="summary-table-header-cell ${item.dividers.length === 0 ? 'is-unassigned' : ''}" data-col-index="${index + 1}">
+                    <div class="summary-header-cell-content">
+                      <div class="summary-header-meta">
+                        ${item.name}<br>
+                        <small style="font-weight: normal; color: var(--text-secondary);">($${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</small><br>
+                        <small style="font-weight: normal; color: var(--text-secondary);">${item.dividers.length} ${item.dividers.length === 1 ? 'person' : 'people'}</small>
+                        ${item.dividers.length === 0 ? '<div class="summary-table-header-badge">Unassigned</div>' : ''}
+                      </div>
+                      <div class="item-header-actions">
+                        <button class="item-action-btn item-action-assign" onclick="billUI.assignItemToAllPeople('${item.id}')" title="Assign ${item.name} to everyone" ${allAssigned ? 'disabled' : ''}>
+                          All
+                        </button>
+                        <button class="item-action-btn item-action-clear" onclick="billUI.clearItemAssignments('${item.id}')" title="Clear everyone from ${item.name}" ${item.dividers.length === 0 ? 'disabled' : ''}>
+                          Clear
+                        </button>
+                        <button class="item-delete-btn" onclick="billUI.removeItem('${item.id}')" title="Delete ${item.name}">
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                    <button class="item-delete-btn" onclick="billUI.removeItem('${item.id}')" title="Delete ${item.name}">
-                      Delete
-                    </button>
                   </div>
-                </div>
-              `).join('')}
+                `;
+              }).join('')}
               <div class="summary-table-header-cell total-header-cell" data-col-index="${visibleItems.length + 1}">Total</div>
             </div>
           </div>

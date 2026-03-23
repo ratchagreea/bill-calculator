@@ -179,6 +179,23 @@ export class BillCalculator {
     return true;
   }
 
+  setItemDividers(billId: string, itemId: string, personIds: string[]): boolean {
+    const bill = this.getBill(billId);
+    if (!bill) return false;
+
+    const item = bill.items.find(existingItem => existingItem.id === itemId);
+    if (!item) return false;
+
+    const validPersonIds = bill.persons.map(person => person.id);
+    const uniqueRequestedIds = Array.from(new Set(personIds));
+    if (!uniqueRequestedIds.every(personId => validPersonIds.includes(personId))) {
+      return false;
+    }
+
+    item.dividers = validPersonIds.filter(personId => uniqueRequestedIds.includes(personId));
+    return true;
+  }
+
   // Calculate summary for each person in a bill
   calculateBillSummary(billId: string): PersonSummary[] {
     const bill = this.getBill(billId);
