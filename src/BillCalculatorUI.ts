@@ -520,6 +520,110 @@ export class BillCalculatorUI {
           font-size: 12px;
         }
 
+        .charges-card {
+          margin-bottom: 18px;
+          padding: 18px;
+          border-radius: 14px;
+          background: linear-gradient(180deg, var(--bg-primary), var(--bg-secondary));
+          border: 1px solid var(--border-color);
+          box-shadow: 0 10px 18px var(--shadow);
+        }
+
+        .charges-header {
+          margin-bottom: 14px;
+        }
+
+        .charges-title {
+          margin: 0;
+          color: var(--text-primary);
+          font-size: 20px;
+        }
+
+        .charges-subtext {
+          margin: 6px 0 0 0;
+          color: var(--text-secondary);
+          font-size: 13px;
+          line-height: 1.5;
+        }
+
+        .charges-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .charges-field {
+          display: grid;
+          gap: 6px;
+          color: var(--text-primary);
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        .charges-field-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .charges-toggle {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          color: var(--text-secondary);
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .charges-toggle input {
+          width: 16px;
+          height: 16px;
+          margin: 0;
+          accent-color: var(--accent-primary);
+        }
+
+        .charges-field input {
+          width: 100%;
+          padding: 10px 12px;
+          border: 2px solid var(--border-color);
+          border-radius: 10px;
+          background: var(--bg-primary);
+          color: var(--text-primary);
+          font-size: 14px;
+          font-weight: 600;
+          box-sizing: border-box;
+        }
+
+        .charges-field input:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+          background: var(--bg-tertiary);
+        }
+
+        .charges-summary {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 14px;
+        }
+
+        .charges-pill {
+          padding: 10px 12px;
+          border-radius: 10px;
+          background: var(--bg-primary);
+          border: 1px solid var(--border-light);
+          color: var(--text-tertiary);
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        .charges-pill-total {
+          background: var(--table-total-bg);
+          border-color: var(--table-total-bg);
+          color: var(--table-total-text);
+        }
+
         .settlement-card {
           margin-bottom: 18px;
           padding: 18px;
@@ -1713,6 +1817,10 @@ export class BillCalculatorUI {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
 
+          .charges-grid {
+            grid-template-columns: 1fr;
+          }
+
           .settlement-header {
             flex-direction: column;
           }
@@ -2172,7 +2280,7 @@ export class BillCalculatorUI {
   }
 
   private renderBillOverview(bill: Bill): string {
-    const totalAmount = bill.items.reduce((sum, item) => sum + item.price, 0);
+    const { subtotal, grandTotal } = this.calculateBillChargeTotals(bill);
     const assignedItems = bill.items.filter(item => item.dividers.length > 0).length;
 
     return `
@@ -2189,13 +2297,130 @@ export class BillCalculatorUI {
         </div>
         <div class="bill-overview-card">
           <span class="bill-overview-label">Bill Total</span>
-          <span class="bill-overview-value">$${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          <span class="bill-overview-subtext">Combined cost before splitting</span>
+          <span class="bill-overview-value">$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          <span class="bill-overview-subtext">Base subtotal $${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} before service, tax, and tip</span>
         </div>
         <div class="bill-overview-card">
           <span class="bill-overview-label">Assigned Items</span>
           <span class="bill-overview-value">${assignedItems}</span>
           <span class="bill-overview-subtext">Items already split with people</span>
+        </div>
+      </div>
+    `;
+  }
+
+  private calculateBillChargeTotals(bill: Bill): {
+    subtotal: number;
+    subtotalAfterService: number;
+    taxAmount: number;
+    serviceAmount: number;
+    tipAmount: number;
+    totalCharges: number;
+    grandTotal: number;
+  } {
+    const subtotal = bill.items.reduce((sum, item) => {
+      if (item.dividers.length === 0) {
+        return sum;
+      }
+
+      return sum + item.price;
+    }, 0);
+    const serviceAmount = bill.charges.serviceEnabled ? subtotal * (bill.charges.serviceRate / 100) : 0;
+    const subtotalAfterService = subtotal + serviceAmount;
+    const taxAmount = bill.charges.taxEnabled ? subtotalAfterService * (bill.charges.taxRate / 100) : 0;
+    const tipAmount = bill.charges.tipEnabled ? subtotalAfterService * (bill.charges.tipRate / 100) : 0;
+    const totalCharges = taxAmount + serviceAmount + tipAmount;
+    const grandTotal = subtotal + totalCharges;
+
+    return { subtotal, subtotalAfterService, taxAmount, serviceAmount, tipAmount, totalCharges, grandTotal };
+  }
+
+  private renderChargeControls(bill: Bill): string {
+    const { subtotal, subtotalAfterService, taxAmount, serviceAmount, tipAmount, grandTotal } = this.calculateBillChargeTotals(bill);
+
+    return `
+      <div class="charges-card">
+        <div class="charges-header">
+          <div>
+            <h4 class="charges-title">Additional Charges</h4>
+            <p class="charges-subtext">Apply bill-level tax, service, and tip to active items only. Service is calculated first, then tax and tip use the subtotal after service. Charges are split proportionally across each person based on their subtotal.</p>
+          </div>
+        </div>
+        <div class="charges-grid">
+          <label class="charges-field">
+            <span class="charges-field-header">
+              <span>Tax %</span>
+              <span class="charges-toggle">
+                <input
+                  type="checkbox"
+                  ${bill.charges.taxEnabled ? 'checked' : ''}
+                  onchange="billUI.updateBillChargeToggle('taxEnabled', this.checked)"
+                >
+                Apply
+              </span>
+            </span>
+            <input
+              type="number"
+              min="0"
+              max="1000"
+              step="1"
+              value="${bill.charges.taxRate}"
+              ${bill.charges.taxEnabled ? '' : 'disabled'}
+              onchange="billUI.updateBillCharge('taxRate', this.value)"
+            >
+          </label>
+          <label class="charges-field">
+            <span class="charges-field-header">
+              <span>Service %</span>
+              <span class="charges-toggle">
+                <input
+                  type="checkbox"
+                  ${bill.charges.serviceEnabled ? 'checked' : ''}
+                  onchange="billUI.updateBillChargeToggle('serviceEnabled', this.checked)"
+                >
+                Apply
+              </span>
+            </span>
+            <input
+              type="number"
+              min="0"
+              max="1000"
+              step="1"
+              value="${bill.charges.serviceRate}"
+              ${bill.charges.serviceEnabled ? '' : 'disabled'}
+              onchange="billUI.updateBillCharge('serviceRate', this.value)"
+            >
+          </label>
+          <label class="charges-field">
+            <span class="charges-field-header">
+              <span>Tip %</span>
+              <span class="charges-toggle">
+                <input
+                  type="checkbox"
+                  ${bill.charges.tipEnabled ? 'checked' : ''}
+                  onchange="billUI.updateBillChargeToggle('tipEnabled', this.checked)"
+                >
+                Apply
+              </span>
+            </span>
+            <input
+              type="number"
+              min="0"
+              max="1000"
+              step="1"
+              value="${bill.charges.tipRate}"
+              ${bill.charges.tipEnabled ? '' : 'disabled'}
+              onchange="billUI.updateBillCharge('tipRate', this.value)"
+            >
+          </label>
+        </div>
+        <div class="charges-summary">
+          <div class="charges-pill">Base Subtotal: $${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div class="charges-pill">Service: $${serviceAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div class="charges-pill">Subtotal After Service: $${subtotalAfterService.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div class="charges-pill">Tax: $${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div class="charges-pill">Tip: $${tipAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div class="charges-pill charges-pill-total">Final Total: $${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
         </div>
       </div>
     `;
@@ -2298,15 +2523,24 @@ export class BillCalculatorUI {
   private calculateSummaryMatrix(bill: Bill): {
     matrix: { [personId: string]: { [itemId: string]: number } };
     itemTotals: { [itemId: string]: number };
+    personSubtotals: { [personId: string]: number };
     personTotals: { [personId: string]: number };
+    subtotalAfterService: number;
+    taxAmount: number;
+    serviceAmount: number;
+    tipAmount: number;
+    totalCharges: number;
+    subtotal: number;
     grandTotal: number;
   } {
     const matrix: { [personId: string]: { [itemId: string]: number } } = {};
     const itemTotals: { [itemId: string]: number } = {};
+    const personSubtotals: { [personId: string]: number } = {};
     const personTotals: { [personId: string]: number } = {};
 
     bill.persons.forEach(person => {
       matrix[person.id] = {};
+      personSubtotals[person.id] = 0;
       personTotals[person.id] = 0;
       bill.items.forEach(item => {
         matrix[person.id][item.id] = 0;
@@ -2328,14 +2562,19 @@ export class BillCalculatorUI {
         }
 
         matrix[personId][item.id] = splitAmount;
-        personTotals[personId] += splitAmount;
+        personSubtotals[personId] += splitAmount;
         itemTotals[item.id] += splitAmount;
       });
     });
 
-    const grandTotal = Object.values(personTotals).reduce((sum, total) => sum + total, 0);
+    const { subtotal, subtotalAfterService, taxAmount, serviceAmount, tipAmount, totalCharges, grandTotal } = this.calculateBillChargeTotals(bill);
+    const proportionalChargeRate = subtotal > 0 ? totalCharges / subtotal : 0;
 
-    return { matrix, itemTotals, personTotals, grandTotal };
+    Object.entries(personSubtotals).forEach(([personId, subtotalAmount]) => {
+      personTotals[personId] = subtotalAmount + (subtotalAmount * proportionalChargeRate);
+    });
+
+    return { matrix, itemTotals, personSubtotals, personTotals, subtotalAfterService, taxAmount, serviceAmount, tipAmount, totalCharges, subtotal, grandTotal };
   }
 
   private renderExportSummaryTable(
@@ -2541,6 +2780,44 @@ export class BillCalculatorUI {
     this.updateSummaryTable();
     this.saveDraftState();
     this.showToast(nextRecipientId ? 'Settlement collector updated' : 'Settlement collector cleared');
+  }
+
+  updateBillCharge(chargeKey: 'taxRate' | 'serviceRate' | 'tipRate', value: string): void {
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    if (!bill) return;
+
+    const parsedValue = Number.parseFloat(value);
+    const nextValue = Number.isFinite(parsedValue) ? Math.min(Math.max(Math.round(parsedValue), 0), 1000) : 0;
+    if (bill.charges[chargeKey] === nextValue) {
+      return;
+    }
+
+    this.recordHistorySnapshot();
+    this.calculator.updateBillCharges(this.currentBillId, {
+      ...bill.charges,
+      [chargeKey]: nextValue
+    });
+    this.updateSummaryTable();
+    this.saveDraftState();
+    this.showToast('Additional charges updated');
+  }
+
+  updateBillChargeToggle(chargeKey: 'taxEnabled' | 'serviceEnabled' | 'tipEnabled', enabled: boolean): void {
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    if (!bill || bill.charges[chargeKey] === enabled) return;
+
+    this.recordHistorySnapshot();
+    this.calculator.updateBillCharges(this.currentBillId, {
+      ...bill.charges,
+      [chargeKey]: enabled
+    });
+    this.updateSummaryTable();
+    this.saveDraftState();
+    this.showToast(enabled ? 'Charge enabled' : 'Charge disabled');
   }
 
   createNewBill(): void {
@@ -3218,10 +3495,12 @@ export class BillCalculatorUI {
     exportPdfBtn.style.display = 'inline-block';
 
     const { matrix, itemTotals, personTotals, grandTotal } = this.calculateSummaryMatrix(bill);
+    const chargesMarkup = this.renderChargeControls(bill);
     const settlementMarkup = this.renderSettlementCard(bill, personTotals);
 
     summaryTable.innerHTML = `
       ${overviewMarkup}
+      ${chargesMarkup}
       <div class="summary-table-container">
         <div class="summary-table-header-shell">
           <div class="summary-table-fixed summary-table-header-fixed">
@@ -3363,7 +3642,7 @@ export class BillCalculatorUI {
     const resolvedScrollWidth = resolvedColumnWidths.reduce((sum, width) => sum + width, 0);
     const scrollWidth = Math.max(Math.ceil(bodyScroll.scrollWidth), resolvedScrollWidth);
     const totalSummaryWidth = fixedWidth + scrollWidth;
-    const { matrix, itemTotals, personTotals, grandTotal } = this.calculateSummaryMatrix(bill);
+    const { matrix, itemTotals, personTotals, subtotal, subtotalAfterService, taxAmount, serviceAmount, tipAmount, grandTotal } = this.calculateSummaryMatrix(bill);
 
     const exportContainer = document.createElement('div');
     exportContainer.style.position = 'absolute';
@@ -3389,6 +3668,14 @@ export class BillCalculatorUI {
         <h2 style="margin: 0 0 10px 0; color: ${this.isDarkTheme ? '#f3f4f6' : '#212529'};">Bill Calculator Export</h2>
         <h3 style="margin: 0 0 5px 0; color: ${this.isDarkTheme ? '#f9fafb' : '#495057'};">${bill.name}</h3>
         <p style="margin: 0; font-size: 14px; color: ${this.isDarkTheme ? '#cccccc' : '#6c757d'};">Generated on ${currentDate}</p>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 18px 0; justify-content: center;">
+        <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Base Subtotal: $${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Service: $${serviceAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Subtotal After Service: $${subtotalAfterService.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Tax: $${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Tip: $${tipAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#059669' : '#28a745'}; background: ${this.isDarkTheme ? '#059669' : '#28a745'}; color: #ffffff; font-size: 13px; font-weight: 800;">Final Total: $${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
       </div>
       <style>
         .export-summary-table-shell {
