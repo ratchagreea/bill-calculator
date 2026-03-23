@@ -5,6 +5,7 @@ export class BillCalculatorUI {
   private calculator: BillCalculator;
   private currentBillId: string | null = null;
   private isDarkTheme: boolean;
+  private toastTimeoutId: number | null = null;
 
   constructor() {
     this.calculator = new BillCalculator();
@@ -19,6 +20,7 @@ export class BillCalculatorUI {
   private initializeUI(): void {
     document.body.innerHTML = `
       <div class="container">
+        <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
         <div class="app-header">
           <h1>💰 Bill Calculator</h1>
           <button id="themeToggle" class="theme-toggle" onclick="billUI.toggleTheme()">
@@ -100,6 +102,7 @@ export class BillCalculatorUI {
                   placeholder="One name per line or separate with commas&#10;Alice&#10;Bob&#10;Charlie"
                 ></textarea>
                 <div class="modal-form-hint">Optional. Paste several names at once.</div>
+                <div class="modal-shortcut-hint">Press Cmd+Enter to submit on Mac, or Ctrl+Enter on other keyboards.</div>
                 <div class="modal-error-message" id="personBulkError"></div>
                 <div class="modal-preview" id="personPreview" style="display: none;"></div>
               </div>
@@ -157,6 +160,7 @@ export class BillCalculatorUI {
                   placeholder="One item per line using Name, Price&#10;Pizza, 24.50&#10;Drinks, 9.00&#10;Dessert, 12.25"
                 ></textarea>
                 <div class="modal-form-hint">Optional. Paste multiple lines in the format Name, Price.</div>
+                <div class="modal-shortcut-hint">Press Cmd+Enter to submit on Mac, or Ctrl+Enter on other keyboards.</div>
                 <div class="modal-error-message" id="itemBulkError"></div>
                 <div class="modal-preview" id="itemPreview" style="display: none;"></div>
               </div>
@@ -307,6 +311,42 @@ export class BillCalculatorUI {
           border-radius: 8px; 
         }
 
+        .toast-container {
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          z-index: 2000;
+          pointer-events: none;
+        }
+
+        .toast {
+          min-width: 240px;
+          max-width: 360px;
+          margin-bottom: 10px;
+          padding: 14px 16px;
+          border-radius: 12px;
+          background: var(--bg-primary);
+          color: var(--text-primary);
+          border: 1px solid var(--border-color);
+          box-shadow: 0 12px 24px var(--shadow);
+          font-size: 14px;
+          font-weight: 600;
+          opacity: 0;
+          transform: translateY(-8px);
+          animation: toastIn 0.22s ease forwards;
+        }
+
+        .toast.toast-success {
+          border-left: 4px solid var(--btn-success);
+        }
+
+        @keyframes toastIn {
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
         .input-group {
           display: flex;
           gap: 10px;
@@ -409,6 +449,46 @@ export class BillCalculatorUI {
           color: var(--text-secondary);
           font-size: 14px;
           margin-bottom: 15px;
+        }
+
+        .bill-overview-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(140px, 1fr));
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .bill-overview-card {
+          padding: 16px;
+          border-radius: 12px;
+          background: linear-gradient(180deg, var(--bg-primary), var(--bg-secondary));
+          border: 1px solid var(--border-color);
+          box-shadow: 0 8px 20px var(--shadow);
+        }
+
+        .bill-overview-label {
+          display: block;
+          color: var(--text-secondary);
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          margin-bottom: 8px;
+        }
+
+        .bill-overview-value {
+          display: block;
+          color: var(--text-primary);
+          font-size: 28px;
+          line-height: 1;
+          font-weight: 700;
+        }
+
+        .bill-overview-subtext {
+          display: block;
+          margin-top: 8px;
+          color: var(--text-secondary);
+          font-size: 12px;
         }
 
         .secondary-btn {
@@ -725,6 +805,13 @@ export class BillCalculatorUI {
           color: var(--btn-danger);
         }
 
+        .modal-shortcut-hint {
+          margin-top: 8px;
+          color: var(--text-tertiary);
+          font-size: 12px;
+          font-weight: 600;
+        }
+
         .modal-input.error {
           border-color: var(--btn-danger);
           box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1);
@@ -894,45 +981,126 @@ export class BillCalculatorUI {
         
         /* Table Styles - Using CSS Variables */
         .summary-table-container {
-          overflow-x: auto;
+          --summary-person-col-width: 220px;
+          --summary-item-col-width: 120px;
+          --summary-total-col-width: 100px;
           margin-top: 15px;
           border-radius: 12px;
           box-shadow: 0 10px 15px -3px var(--shadow);
-        }
-        
-        table { 
-          width: 100%; 
-          border-collapse: collapse; 
+          overflow: visible;
           background-color: var(--table-bg);
-          color: var(--table-person-text);
-          border-radius: 12px;
+        }
+
+        .summary-table-shell {
+          display: grid;
+          grid-template-columns: var(--summary-person-col-width) minmax(0, 1fr);
+          align-items: start;
+        }
+
+        .summary-table-header-shell,
+        .summary-table-body-shell {
+          display: grid;
+          grid-template-columns: var(--summary-person-col-width) minmax(0, 1fr);
+          align-items: start;
+        }
+
+        .summary-table-header-shell {
+          position: sticky;
+          top: 0;
+          z-index: 20;
+          box-shadow: 0 10px 16px -16px rgba(0, 0, 0, 0.55);
+        }
+
+        .summary-table-fixed {
+          border-right: 1px solid var(--table-border);
+          background-color: var(--table-bg);
+          position: relative;
+          z-index: 2;
+          box-shadow: 12px 0 18px -18px rgba(0, 0, 0, 0.55);
+        }
+
+        .summary-table-scroll {
+          overflow-x: auto;
+          overflow-y: hidden;
+          background-color: var(--table-bg);
+        }
+
+        .summary-table-header-scroll {
           overflow: hidden;
+          background-color: var(--table-bg);
+          z-index: 11;
         }
-        
-        th, td { 
-          padding: 16px 12px;
-          text-align: center; 
-          border: none;
-          font-size: 14px;
-          vertical-align: middle;
-          box-sizing: border-box;
-          transition: all 0.2s ease;
+
+        .summary-table-header-track {
+          display: flex;
+          width: max-content;
+          min-width: 100%;
         }
-        
-        th { 
+
+        .summary-table-body-fixed,
+        .summary-table-body-scroll {
+          background-color: var(--table-bg);
+        }
+
+        .summary-table-header-fixed {
+          border-right: 1px solid var(--table-border);
           background-color: var(--table-header-bg);
           color: var(--table-header-text);
-          font-weight: 600; 
-          font-size: 13px;
+          box-shadow: 12px 0 18px -18px rgba(0, 0, 0, 0.55);
+        }
+
+        .summary-header-fixed-cell,
+        .summary-table-header-cell {
+          min-height: 94px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 12px 8px;
+          box-sizing: border-box;
+          border-bottom: 1px solid var(--table-border);
+          color: var(--table-header-text);
+          background-color: var(--table-header-bg);
           text-transform: uppercase;
           letter-spacing: 0.05em;
-          white-space: nowrap;
-          border-bottom: 1px solid var(--table-border);
+          font-size: 13px;
+          font-weight: 600;
         }
-        
-        /* Striped Columns Effect */
-        td:nth-child(odd) {
-          background-color: var(--table-row-odd);
+
+        .summary-header-fixed-cell {
+          min-width: var(--summary-person-col-width);
+          width: var(--summary-person-col-width);
+          max-width: var(--summary-person-col-width);
+          justify-content: flex-start;
+          padding: 16px;
+        }
+
+        .summary-table-header-cell {
+          min-width: var(--summary-item-col-width);
+          width: var(--summary-item-col-width);
+          max-width: var(--summary-item-col-width);
+          flex: 0 0 var(--summary-item-col-width);
+        }
+
+        .summary-table-header-cell.total-header-cell {
+          min-width: var(--summary-total-col-width);
+          width: var(--summary-total-col-width);
+          max-width: var(--summary-total-col-width);
+          flex: 0 0 var(--summary-total-col-width);
+          background-color: var(--table-total-bg);
+          color: var(--table-total-text);
+        }
+
+        .summary-header-cell-content {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+        }
+
+        .summary-header-meta {
+          line-height: 1.3;
+          text-align: center;
         }
         
         td:nth-child(even) {
@@ -942,7 +1110,17 @@ export class BillCalculatorUI {
         /* Hover effects */
         tbody tr:hover td {
           background-color: var(--table-row-hover) !important;
-          transform: scale(1.01);
+        }
+
+        tr.row-hover td,
+        tr.row-hover th,
+        tr.row-hover .person-row-cell {
+          background-color: var(--table-row-hover) !important;
+        }
+
+        td.column-hover,
+        th.column-hover {
+          background-color: var(--table-row-hover) !important;
         }
         
         /* Person column styles */
@@ -950,8 +1128,9 @@ export class BillCalculatorUI {
           background-color: var(--table-header-bg) !important;
           color: var(--table-header-text) !important;
           font-weight: 600;
-          min-width: 180px;
-          width: 100%;
+          min-width: var(--summary-person-col-width);
+          width: var(--summary-person-col-width);
+          max-width: var(--summary-person-col-width);
           height: 100%;
           padding: 16px;
           display: flex;
@@ -961,14 +1140,15 @@ export class BillCalculatorUI {
           margin: 0;
           box-sizing: border-box;
         }
-        
+
         /* Person row cell - Full expansion */
         .person-row-cell {
           background-color: var(--table-person-bg) !important;
           color: var(--table-person-text) !important;
           font-weight: 500;
-          min-width: 180px;
-          width: 100%;
+          min-width: var(--summary-person-col-width);
+          width: var(--summary-person-col-width);
+          max-width: var(--summary-person-col-width);
           height: 100%;
           padding: 16px;
           display: flex;
@@ -978,19 +1158,36 @@ export class BillCalculatorUI {
           border: none;
           margin: 0;
           box-sizing: border-box;
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
         }
         
         /* Parent td for person row */
         .person-cell {
           padding: 0 !important;
-          position: relative;
-          min-width: 180px;
+          min-width: var(--summary-person-col-width);
+          width: var(--summary-person-col-width);
+          max-width: var(--summary-person-col-width);
           background-color: var(--table-person-bg) !important;
+          box-sizing: border-box;
+        }
+
+        th[data-col-index="0"] {
+          min-width: var(--summary-person-col-width);
+          width: var(--summary-person-col-width);
+          max-width: var(--summary-person-col-width);
+        }
+
+        td[data-col-index="0"] {
+          padding: 0 !important;
+          background-color: var(--table-person-bg) !important;
+          min-width: var(--summary-person-col-width);
+          width: var(--summary-person-col-width);
+          max-width: var(--summary-person-col-width);
+        }
+
+        .person-cell.column-hover,
+        th.column-hover,
+        td.column-hover {
+          background-color: var(--table-row-hover) !important;
         }
         
         .person-name-column { 
@@ -1008,9 +1205,12 @@ export class BillCalculatorUI {
           background-color: var(--table-header-bg) !important;
           color: var(--table-header-text) !important;
           font-weight: 600;
-          min-width: 120px;
+          min-width: var(--summary-item-col-width);
+          width: var(--summary-item-col-width);
+          max-width: var(--summary-item-col-width);
           padding: 12px 8px;
           text-align: center;
+          box-sizing: border-box;
         }
         
         .item-header-content {
@@ -1047,8 +1247,11 @@ export class BillCalculatorUI {
           background-color: var(--table-total-bg) !important;
           color: var(--table-total-text) !important;
           font-weight: 700;
-          min-width: 100px;
+          min-width: var(--summary-total-col-width);
+          width: var(--summary-total-col-width);
+          max-width: var(--summary-total-col-width);
           padding: 16px;
+          box-sizing: border-box;
         }
         
         .total-row { 
@@ -1067,6 +1270,10 @@ export class BillCalculatorUI {
         .checkbox-cell {
           padding: 16px;
           position: relative;
+          min-width: var(--summary-item-col-width);
+          width: var(--summary-item-col-width);
+          max-width: var(--summary-item-col-width);
+          box-sizing: border-box;
         }
         
         .divider-checkbox {
@@ -1191,6 +1398,81 @@ export class BillCalculatorUI {
           border-radius: 8px;
           border: 2px dashed var(--border-color);
         }
+
+        .empty-workflow-state {
+          padding: 28px;
+          border-radius: 16px;
+          background: linear-gradient(180deg, var(--bg-primary), var(--bg-secondary));
+          border: 1px solid var(--border-color);
+          box-shadow: 0 12px 24px var(--shadow);
+        }
+
+        .empty-workflow-state h4 {
+          margin: 0 0 10px 0;
+          color: var(--text-primary);
+          font-size: 22px;
+        }
+
+        .empty-workflow-state p {
+          margin: 0 0 14px 0;
+          color: var(--text-secondary);
+        }
+
+        .empty-workflow-steps {
+          display: grid;
+          gap: 10px;
+          margin-top: 18px;
+        }
+
+        .empty-workflow-step {
+          padding: 12px 14px;
+          border-radius: 10px;
+          background: var(--bg-primary);
+          border: 1px solid var(--border-light);
+          color: var(--text-tertiary);
+          font-weight: 600;
+        }
+
+        .mobile-summary-grid {
+          display: none;
+          margin-top: 16px;
+          gap: 12px;
+        }
+
+        .mobile-summary-card {
+          padding: 14px;
+          border-radius: 12px;
+          border: 1px solid var(--border-color);
+          background: var(--bg-primary);
+          box-shadow: 0 8px 18px var(--shadow);
+        }
+
+        .mobile-summary-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 8px;
+        }
+
+        .mobile-summary-name {
+          color: var(--text-primary);
+          font-size: 16px;
+          font-weight: 700;
+        }
+
+        .mobile-summary-total {
+          color: var(--btn-success);
+          font-size: 16px;
+          font-weight: 700;
+        }
+
+        .mobile-summary-meta,
+        .mobile-summary-items {
+          color: var(--text-secondary);
+          font-size: 13px;
+          line-height: 1.5;
+        }
         
         .list-container {
           margin-top: 10px;
@@ -1220,10 +1502,29 @@ export class BillCalculatorUI {
         
         /* Responsive design for smaller screens */
         @media (max-width: 768px) {
+          .toast-container {
+            left: 16px;
+            right: 16px;
+            top: 16px;
+          }
+
+          .toast {
+            min-width: auto;
+            max-width: none;
+          }
+
           .app-header {
             flex-direction: column;
             gap: 15px;
             text-align: center;
+          }
+
+          .bill-overview-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .mobile-summary-grid {
+            display: grid;
           }
 
           #billsList {
@@ -1238,9 +1539,41 @@ export class BillCalculatorUI {
             font-size: 13px;
           }
           
+          .summary-table-container {
+            --summary-person-col-width: 180px;
+            --summary-item-col-width: 100px;
+            --summary-total-col-width: 92px;
+          }
+
           .person-header, .person-row-cell {
-            min-width: 140px;
             padding: 12px;
+          }
+
+          .summary-table-shell {
+            grid-template-columns: var(--summary-person-col-width) minmax(0, 1fr);
+          }
+
+          .summary-table-header-shell,
+          .summary-table-body-shell {
+            grid-template-columns: var(--summary-person-col-width) minmax(0, 1fr);
+          }
+
+          .summary-header-fixed-cell {
+            width: var(--summary-person-col-width);
+          }
+
+          .summary-table-fixed table,
+          .summary-table-body-fixed table {
+            width: var(--summary-person-col-width);
+            min-width: var(--summary-person-col-width);
+          }
+
+          .person-cell,
+          th[data-col-index="0"],
+          td[data-col-index="0"] {
+            min-width: var(--summary-person-col-width);
+            width: var(--summary-person-col-width);
+            max-width: var(--summary-person-col-width);
           }
           
           .item-header {
@@ -1272,6 +1605,10 @@ export class BillCalculatorUI {
           .input-group {
             flex-direction: column;
           }
+
+          .bill-overview-grid {
+            grid-template-columns: 1fr;
+          }
         }
       </style>
     `;
@@ -1280,6 +1617,7 @@ export class BillCalculatorUI {
     (window as any).billUI = this;
     this.attachModalKeyboardSupport();
     this.attachModalPreviewSupport();
+    this.attachSummaryTableResizeSupport();
     this.updateBillsList();
   }
 
@@ -1334,6 +1672,173 @@ export class BillCalculatorUI {
     itemBulkInput?.addEventListener('input', () => this.updateItemPreview());
   }
 
+  private attachSummaryTableResizeSupport(): void {
+    window.addEventListener('resize', () => this.syncSummaryTableRowHeights());
+  }
+
+  private attachSummaryTableScrollSync(): void {
+    const headerScroll = document.querySelector('.summary-table-header-scroll') as HTMLElement | null;
+    const bodyScroll = document.querySelector('.summary-table-body-scroll') as HTMLElement | null;
+    if (!headerScroll || !bodyScroll) return;
+
+    const syncHeader = () => {
+      headerScroll.scrollLeft = bodyScroll.scrollLeft;
+    };
+
+    bodyScroll.addEventListener('scroll', syncHeader);
+    syncHeader();
+  }
+
+  private showToast(message: string): void {
+    const toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) return;
+
+    if (this.toastTimeoutId !== null) {
+      window.clearTimeout(this.toastTimeoutId);
+      this.toastTimeoutId = null;
+    }
+
+    toastContainer.innerHTML = `<div class="toast toast-success">${message}</div>`;
+    this.toastTimeoutId = window.setTimeout(() => {
+      toastContainer.innerHTML = '';
+      this.toastTimeoutId = null;
+    }, 2400);
+  }
+
+  private renderBillOverview(bill: Bill): string {
+    const totalAmount = bill.items.reduce((sum, item) => sum + item.price, 0);
+    const assignedItems = bill.items.filter(item => item.dividers.length > 0).length;
+
+    return `
+      <div class="bill-overview-grid">
+        <div class="bill-overview-card">
+          <span class="bill-overview-label">People</span>
+          <span class="bill-overview-value">${bill.persons.length}</span>
+          <span class="bill-overview-subtext">Everyone sharing this bill</span>
+        </div>
+        <div class="bill-overview-card">
+          <span class="bill-overview-label">Items</span>
+          <span class="bill-overview-value">${bill.items.length}</span>
+          <span class="bill-overview-subtext">Line items added so far</span>
+        </div>
+        <div class="bill-overview-card">
+          <span class="bill-overview-label">Bill Total</span>
+          <span class="bill-overview-value">$${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          <span class="bill-overview-subtext">Combined cost before splitting</span>
+        </div>
+        <div class="bill-overview-card">
+          <span class="bill-overview-label">Assigned Items</span>
+          <span class="bill-overview-value">${assignedItems}</span>
+          <span class="bill-overview-subtext">Items already split with people</span>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderEmptyWorkflowState(title: string, description: string, steps: string[]): string {
+    return `
+      <div class="empty-workflow-state">
+        <h4>${title}</h4>
+        <p>${description}</p>
+        <div class="empty-workflow-steps">
+          ${steps.map((step, index) => `<div class="empty-workflow-step">${index + 1}. ${step}</div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderMobileSummaryCards(bill: Bill, personTotals: { [personId: string]: number }): string {
+    return `
+      <div class="mobile-summary-grid">
+        ${bill.persons.map(person => {
+          const sharedItems = bill.items.filter(item => item.dividers.includes(person.id));
+          return `
+            <div class="mobile-summary-card">
+              <div class="mobile-summary-card-header">
+                <span class="mobile-summary-name">${person.name}</span>
+                <span class="mobile-summary-total">$${personTotals[person.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+              <div class="mobile-summary-meta">${sharedItems.length} ${sharedItems.length === 1 ? 'item' : 'items'} shared</div>
+              <div class="mobile-summary-items">${sharedItems.length > 0 ? sharedItems.map(item => item.name).join(', ') : 'No items assigned yet'}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  private attachSummaryTableHoverEffects(): void {
+    const summaryScroll = document.querySelector('.summary-table-body-scroll');
+    const summaryFixed = document.querySelector('.summary-table-body-fixed');
+    const summaryHeader = document.querySelector('.summary-table-header-scroll');
+    if (!summaryScroll || !summaryFixed || !summaryHeader) return;
+
+    const clearColumnHover = () => {
+      summaryScroll.querySelectorAll('.column-hover').forEach(element => element.classList.remove('column-hover'));
+      summaryHeader.querySelectorAll('.column-hover').forEach(element => element.classList.remove('column-hover'));
+    };
+
+    const clearRowHover = () => {
+      document.querySelectorAll('.row-hover').forEach(element => element.classList.remove('row-hover'));
+    };
+
+    summaryScroll.querySelectorAll<HTMLElement>('[data-col-index]').forEach(cell => {
+      cell.addEventListener('mouseenter', () => {
+        const columnIndex = cell.dataset.colIndex;
+        if (!columnIndex) return;
+        clearColumnHover();
+        summaryScroll.querySelectorAll<HTMLElement>(`[data-col-index="${columnIndex}"]`).forEach(element => {
+          element.classList.add('column-hover');
+        });
+        summaryHeader.querySelectorAll<HTMLElement>(`[data-col-index="${columnIndex}"]`).forEach(element => {
+          element.classList.add('column-hover');
+        });
+      });
+    });
+
+    const attachRowHover = (container: Element) => {
+      container.querySelectorAll<HTMLElement>('tr[data-row-index]').forEach(row => {
+        row.addEventListener('mouseenter', () => {
+          const rowIndex = row.dataset.rowIndex;
+          if (!rowIndex) return;
+          clearRowHover();
+          document.querySelectorAll<HTMLElement>(`tr[data-row-index="${rowIndex}"]`).forEach(element => {
+            element.classList.add('row-hover');
+          });
+        });
+      });
+    };
+
+    attachRowHover(summaryScroll);
+    attachRowHover(summaryFixed);
+
+    summaryScroll.addEventListener('mouseleave', () => {
+      clearColumnHover();
+      clearRowHover();
+    });
+    summaryFixed.addEventListener('mouseleave', clearRowHover);
+  }
+
+  private syncSummaryTableRowHeights(): void {
+    const fixedRows = document.querySelectorAll<HTMLElement>('.summary-table-body-fixed tr');
+    const scrollRows = document.querySelectorAll<HTMLElement>('.summary-table-body-scroll tr');
+    if (fixedRows.length === 0 || scrollRows.length === 0) return;
+
+    fixedRows.forEach(row => {
+      row.style.height = 'auto';
+    });
+    scrollRows.forEach(row => {
+      row.style.height = 'auto';
+    });
+
+    const rowCount = Math.min(fixedRows.length, scrollRows.length);
+    for (let index = 0; index < rowCount; index += 1) {
+      const height = Math.max(fixedRows[index].offsetHeight, scrollRows[index].offsetHeight);
+      fixedRows[index].style.height = `${height}px`;
+      scrollRows[index].style.height = `${height}px`;
+    }
+  }
+
   private isPersonModalOpen(): boolean {
     return document.getElementById('personInputModal')?.style.display === 'flex';
   }
@@ -1378,6 +1883,7 @@ export class BillCalculatorUI {
     billNameInput.value = '';
     this.updateBillsList();
     this.selectBill(billId);
+    this.showToast(`Bill "${billName}" created`);
   }
 
   selectBill(billId: string): void {
@@ -1421,6 +1927,7 @@ export class BillCalculatorUI {
     const modal = document.getElementById('personInputModal')!;
     const input = document.getElementById('modalPersonName') as HTMLInputElement;
     const bulkInput = document.getElementById('modalPersonNames') as HTMLTextAreaElement;
+    const submitButton = document.getElementById('addPersonSubmitBtn') as HTMLButtonElement;
     
     modal.style.display = 'flex';
     modal.setAttribute('aria-hidden', 'false');
@@ -1430,6 +1937,7 @@ export class BillCalculatorUI {
     bulkInput.value = '';
     this.clearModalErrors('person');
     this.updatePersonPreview();
+    submitButton.disabled = true;
     
     // Focus with slight delay for animation
     setTimeout(() => {
@@ -1443,6 +1951,7 @@ export class BillCalculatorUI {
 
   closePersonModal(): void {
     const modal = document.getElementById('personInputModal')!;
+    const submitButton = document.getElementById('addPersonSubmitBtn') as HTMLButtonElement;
     
     modal.style.display = 'none';
     modal.setAttribute('aria-hidden', 'true');
@@ -1452,6 +1961,7 @@ export class BillCalculatorUI {
     (document.getElementById('modalPersonNames') as HTMLTextAreaElement).value = '';
     this.clearModalErrors('person');
     this.updatePersonPreview();
+    submitButton.disabled = true;
     
     // Restore body scroll
     document.body.style.overflow = '';
@@ -1508,6 +2018,7 @@ export class BillCalculatorUI {
     this.calculator.addPeople(this.currentBillId, personEntries.names);
     this.closePersonModal();
     this.updateSummaryTable();
+    this.showToast(`Added ${personEntries.names.length} ${personEntries.names.length === 1 ? 'person' : 'people'}`);
     
     // Remove loading state
     addButton.classList.remove('loading');
@@ -1518,6 +2029,7 @@ export class BillCalculatorUI {
     const modal = document.getElementById('itemInputModal')!;
     const nameInput = document.getElementById('modalItemName') as HTMLInputElement;
     const bulkInput = document.getElementById('modalBulkItems') as HTMLTextAreaElement;
+    const submitButton = document.getElementById('addItemSubmitBtn') as HTMLButtonElement;
     
     modal.style.display = 'flex';
     modal.setAttribute('aria-hidden', 'false');
@@ -1528,6 +2040,7 @@ export class BillCalculatorUI {
     bulkInput.value = '';
     this.clearModalErrors('item');
     this.updateItemPreview();
+    submitButton.disabled = true;
     
     // Focus with slight delay for animation
     setTimeout(() => {
@@ -1541,6 +2054,7 @@ export class BillCalculatorUI {
 
   closeItemModal(): void {
     const modal = document.getElementById('itemInputModal')!;
+    const submitButton = document.getElementById('addItemSubmitBtn') as HTMLButtonElement;
     
     modal.style.display = 'none';
     modal.setAttribute('aria-hidden', 'true');
@@ -1551,6 +2065,7 @@ export class BillCalculatorUI {
     (document.getElementById('modalBulkItems') as HTMLTextAreaElement).value = '';
     this.clearModalErrors('item');
     this.updateItemPreview();
+    submitButton.disabled = true;
     
     // Restore body scroll
     document.body.style.overflow = '';
@@ -1630,6 +2145,7 @@ export class BillCalculatorUI {
     this.calculator.addItems(this.currentBillId, itemEntries);
     this.closeItemModal();
     this.updateSummaryTable();
+    this.showToast(`Added ${itemEntries.length} ${itemEntries.length === 1 ? 'item' : 'items'}`);
     
     // Remove loading state
     addButton.classList.remove('loading');
@@ -1709,15 +2225,17 @@ export class BillCalculatorUI {
     const existingNames = personEntries.names.filter(name =>
       bill?.persons.some(person => person.name.toLowerCase() === name.toLowerCase())
     );
+    const readyCount = Math.max(personEntries.names.length - existingNames.length, 0);
 
     if (!personNameInput.value.trim() && !bulkPersonInput.value.trim()) {
       previewElement.style.display = 'none';
       previewElement.innerHTML = '';
+      this.updateModalSubmitState('person', false);
       return;
     }
 
     const previewLines = [`<strong>Preview</strong>`];
-    previewLines.push(`<div class="modal-preview-summary">Ready to add: ${Math.max(personEntries.names.length - existingNames.length, 0)} person(s)</div>`);
+    previewLines.push(`<div class="modal-preview-summary">Ready to add: ${readyCount} person(s)</div>`);
 
     if (personEntries.invalidNames.length > 0) {
       previewLines.push(`<div class="modal-preview-warning">Empty names are not allowed: ${personEntries.invalidNames.join(', ')}</div>`);
@@ -1733,6 +2251,7 @@ export class BillCalculatorUI {
 
     previewElement.innerHTML = previewLines.join('');
     previewElement.style.display = 'block';
+    this.updateModalSubmitState('person', readyCount > 0);
   }
 
   private updateItemPreview(): void {
@@ -1772,11 +2291,13 @@ export class BillCalculatorUI {
     if (!hasSingleInput && !bulkItemsInput.value.trim()) {
       previewElement.style.display = 'none';
       previewElement.innerHTML = '';
+      this.updateModalSubmitState('item', false);
       return;
     }
 
     const previewLines = [`<strong>Preview</strong>`];
-    previewLines.push(`<div class="modal-preview-summary">Ready to add: ${singleItemReady + itemEntriesCount} item(s)</div>`);
+    const readyCount = singleItemReady + itemEntriesCount;
+    previewLines.push(`<div class="modal-preview-summary">Ready to add: ${readyCount} item(s)</div>`);
 
     if (singleItemIssues.length > 0) {
       previewLines.push(`<div class="modal-preview-warning">${singleItemIssues.join(' | ')}</div>`);
@@ -1788,6 +2309,14 @@ export class BillCalculatorUI {
 
     previewElement.innerHTML = previewLines.join('');
     previewElement.style.display = 'block';
+    this.updateModalSubmitState('item', readyCount > 0);
+  }
+
+  private updateModalSubmitState(modalType: 'person' | 'item', hasValidEntries: boolean): void {
+    const buttonId = modalType === 'person' ? 'addPersonSubmitBtn' : 'addItemSubmitBtn';
+    const button = document.getElementById(buttonId) as HTMLButtonElement | null;
+    if (!button || button.classList.contains('loading')) return;
+    button.disabled = !hasValidEntries;
   }
 
   private clearModalErrors(modalType: 'person' | 'item'): void {
@@ -1881,6 +2410,7 @@ export class BillCalculatorUI {
     if (confirm(`Remove "${person?.name}" from this bill?`)) {
       this.calculator.removePerson(this.currentBillId, personId);
       this.updateSummaryTable();
+      this.showToast(`Removed ${person?.name || 'person'}`);
     }
   }
 
@@ -1893,6 +2423,7 @@ export class BillCalculatorUI {
     if (confirm(`Remove "${item?.name}" ($${item?.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) from this bill?`)) {
       this.calculator.removeItem(this.currentBillId, itemId);
       this.updateSummaryTable();
+      this.showToast(`Removed ${item?.name || 'item'}`);
     }
   }
 
@@ -1950,6 +2481,8 @@ export class BillCalculatorUI {
     addPersonBtn.style.display = 'inline-block';
     addItemBtn.style.display = 'inline-block';
 
+    const overviewMarkup = this.renderBillOverview(bill);
+
     // if (bill.items.length === 0) {
     //   summaryTable.innerHTML = `
     //     <div class="no-data-message">
@@ -1963,11 +2496,25 @@ export class BillCalculatorUI {
     // If no persons, show special message with add person option
     if (bill.persons.length === 0) {
       summaryTable.innerHTML = `
-        <div class="empty-persons-message">
-          <h4>No persons added yet</h4>
-          <p>Add people to split the bill costs</p>
-          <p style="color: var(--btn-success); font-weight: bold;">↗ Use the "Add Person" button above</p>
-        </div>
+        ${overviewMarkup}
+        ${this.renderEmptyWorkflowState(
+          'Start by adding people',
+          'This bill is ready, but there is nobody to split it with yet.',
+          ['Add the people joining this bill', 'Add your bill items', 'Check who shares each item cost']
+        )}
+      `;
+      exportBtn.style.display = 'none';
+      return;
+    }
+
+    if (bill.items.length === 0) {
+      summaryTable.innerHTML = `
+        ${overviewMarkup}
+        ${this.renderEmptyWorkflowState(
+          'Add items to calculate totals',
+          'People are ready. Add food, drinks, fees, or any shared cost to begin splitting.',
+          ['Add one or many items', 'Assign who shares each item', 'Review totals in the summary table']
+        )}
       `;
       exportBtn.style.display = 'none';
       return;
@@ -2010,77 +2557,100 @@ export class BillCalculatorUI {
     const grandTotal = Object.values(personTotals).reduce((sum, total) => sum + total, 0);
 
     summaryTable.innerHTML = `
+      ${overviewMarkup}
       <div class="summary-table-container">
-        <table>
-          <thead>
-            <tr>
-              <th style="padding: 0;">
-                <div class="person-header">
-                  Person
-                </div>
-              </th>
-              ${bill.items.map(item => `
-                <th class="item-header">
-                  <div class="item-header-content">
-                    <div class="item-name-price">
+        <div class="summary-table-header-shell">
+          <div class="summary-table-fixed summary-table-header-fixed">
+            <div class="summary-header-fixed-cell">Person</div>
+          </div>
+          <div class="summary-table-header-scroll">
+            <div class="summary-table-header-track">
+              ${bill.items.map((item, index) => `
+                <div class="summary-table-header-cell" data-col-index="${index + 1}">
+                  <div class="summary-header-cell-content">
+                    <div class="summary-header-meta">
                       ${item.name}<br>
-                      <small style="font-weight: normal; color: var(--text-secondary);">($${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</small>
+                      <small style="font-weight: normal; color: var(--text-secondary);">($${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</small><br>
+                      <small style="font-weight: normal; color: var(--text-secondary);">${item.dividers.length} ${item.dividers.length === 1 ? 'person' : 'people'}</small>
                     </div>
                     <button class="item-delete-btn" onclick="billUI.removeItem('${item.id}')" title="Delete ${item.name}">
                       Delete
                     </button>
                   </div>
-                </th>
-              `).join('')}
-              <th class="total-column">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${bill.persons.map(person => `
-              <tr>
-                <td class="person-cell">
-                  <div class="person-row-cell">
-                    <span class="person-name">${person.name}</span>
-                    <button class="person-delete-btn" onclick="billUI.removePerson('${person.id}')">
-                      Delete
-                    </button>
-                  </div>
-                </td>
-                ${bill.items.map(item => {
-                  const amount = matrix[person.id][item.id];
-                  const isChecked = item.dividers.includes(person.id);
-                  
-                  return `
-                    <td class="checkbox-cell">
-                      <input type="checkbox" 
-                             class="divider-checkbox" 
-                             ${isChecked ? 'checked' : ''} 
-                             onchange="billUI.toggleDividerFromTable('${item.id}', '${person.id}')"
-                             id="checkbox_${person.id}_${item.id}">
-                      <small style="color: ${amount > 0 ? 'var(--btn-success)' : 'var(--text-secondary)'}; font-weight: ${amount > 0 ? '600' : 'normal'};">
-                        ${amount > 0 ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
-                      </small>
-                    </td>
-                  `;
-                }).join('')}
-                <td class="total-column">$${personTotals[person.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-              </tr>
-            `).join('')}
-            <tr class="total-row">
-              <td class="person-cell">
-                <div class="person-row-cell" style="background-color: var(--table-total-bg) !important;">
-                  <span class="person-name" style="color: var(--table-total-text);">Total</span>
                 </div>
-              </td>
-              ${bill.items.map(item => `
-                <td class="total-column">$${itemTotals[item.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
               `).join('')}
-              <td class="total-column">$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            </tr>
-          </tbody>
-        </table>
+              <div class="summary-table-header-cell total-header-cell" data-col-index="${bill.items.length + 1}">Total</div>
+            </div>
+          </div>
+        </div>
+        <div class="summary-table-body-shell">
+          <div class="summary-table-fixed summary-table-body-fixed">
+            <table>
+              <tbody>
+                ${bill.persons.map((person, index) => `
+                  <tr data-row-index="person-${index}">
+                    <td class="person-cell">
+                      <div class="person-row-cell">
+                        <span class="person-name">${person.name}</span>
+                        <button class="person-delete-btn" onclick="billUI.removePerson('${person.id}')">
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+                <tr class="total-row" data-row-index="total">
+                  <td class="person-cell">
+                    <div class="person-row-cell" style="background-color: var(--table-total-bg) !important;">
+                      <span class="person-name" style="color: var(--table-total-text);">Total</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="summary-table-scroll summary-table-body-scroll">
+            <table>
+              <tbody>
+                ${bill.persons.map((person, index) => `
+                  <tr data-row-index="person-${index}">
+                    ${bill.items.map((item, index) => {
+                      const amount = matrix[person.id][item.id];
+                      const isChecked = item.dividers.includes(person.id);
+
+                      return `
+                        <td class="checkbox-cell" data-col-index="${index + 1}">
+                          <input type="checkbox"
+                                 class="divider-checkbox"
+                                 ${isChecked ? 'checked' : ''}
+                                 onchange="billUI.toggleDividerFromTable('${item.id}', '${person.id}')"
+                                 id="checkbox_${person.id}_${item.id}">
+                          <small style="color: ${amount > 0 ? 'var(--btn-success)' : 'var(--text-secondary)'}; font-weight: ${amount > 0 ? '600' : 'normal'};">
+                            ${amount > 0 ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
+                          </small>
+                        </td>
+                      `;
+                    }).join('')}
+                    <td class="total-column" data-col-index="${bill.items.length + 1}">$${personTotals[person.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  </tr>
+                `).join('')}
+                <tr class="total-row" data-row-index="total">
+                  ${bill.items.map((item, index) => `
+                    <td class="total-column" data-col-index="${index + 1}">$${itemTotals[item.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  `).join('')}
+                  <td class="total-column" data-col-index="${bill.items.length + 1}">$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
+      ${this.renderMobileSummaryCards(bill, personTotals)}
     `;
+
+    this.attachSummaryTableScrollSync();
+    this.attachSummaryTableHoverEffects();
+    window.requestAnimationFrame(() => this.syncSummaryTableRowHeights());
 
   }
 
