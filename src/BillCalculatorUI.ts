@@ -179,7 +179,6 @@ export class BillCalculatorUI {
 
       <style>
         :root {
-          /* Light theme colors */
           --bg-primary: #ffffff;
           --bg-secondary: #f8f9fa;
           --bg-tertiary: #e9ecef;
@@ -189,8 +188,6 @@ export class BillCalculatorUI {
           --border-color: #dee2e6;
           --border-light: #e9ecef;
           --shadow: rgba(0, 0, 0, 0.1);
-          
-          /* Table colors - Light theme with better contrast */
           --table-bg: #ffffff;
           --table-header-bg: #343a40;
           --table-header-text: #ffffff;
@@ -202,8 +199,6 @@ export class BillCalculatorUI {
           --table-person-text: #ffffff;
           --table-total-bg: #28a745;
           --table-total-text: #ffffff;
-          
-          /* Button colors */
           --btn-primary: #007bff;
           --btn-primary-hover: #0056b3;
           --btn-success: #28a745;
@@ -215,7 +210,6 @@ export class BillCalculatorUI {
         }
 
         [data-theme="dark"] {
-          /* Dark theme colors */
           --bg-primary: #1a1a1a;
           --bg-secondary: #2d2d2d;
           --bg-tertiary: #404040;
@@ -225,8 +219,6 @@ export class BillCalculatorUI {
           --border-color: #404040;
           --border-light: #555555;
           --shadow: rgba(0, 0, 0, 0.3);
-          
-          /* Table colors - Dark theme */
           --table-bg: #1f2937;
           --table-header-bg: #111827;
           --table-header-text: #f3f4f6;
@@ -238,8 +230,6 @@ export class BillCalculatorUI {
           --table-person-text: #f9fafb;
           --table-total-bg: #059669;
           --table-total-text: #f0fff4;
-          
-          /* Button colors - keep same for consistency */
           --btn-primary: #007bff;
           --btn-primary-hover: #0056b3;
           --btn-success: #28a745;
@@ -258,10 +248,10 @@ export class BillCalculatorUI {
           font-family: Arial, sans-serif;
         }
 
-        .container { 
-          max-width: 1200px; 
-          margin: 0 auto; 
-          padding: 20px; 
+        .container {
+          max-width: 1200px;
+          margin: 0 auto;
+          padding: 20px;
         }
 
         .app-header {
@@ -303,12 +293,12 @@ export class BillCalculatorUI {
           transition: transform 0.3s ease;
         }
 
-        .section { 
-          margin-bottom: 30px; 
-          padding: 20px; 
+        .section {
+          margin-bottom: 30px;
+          padding: 20px;
           background-color: var(--bg-secondary);
-          border: 1px solid var(--border-color); 
-          border-radius: 8px; 
+          border: 1px solid var(--border-color);
+          border-radius: 8px;
         }
 
         .toast-container {
@@ -387,8 +377,9 @@ export class BillCalculatorUI {
           background-color: var(--btn-primary);
           color: white;
         }
-        .btn-primary:hover { 
-          background-color: var(--btn-primary-hover); 
+
+        .btn-primary:hover {
+          background-color: var(--btn-primary-hover);
           transform: translateY(-2px);
         }
 
@@ -1812,6 +1803,115 @@ export class BillCalculatorUI {
     `;
   }
 
+  private calculateSummaryMatrix(bill: Bill): {
+    matrix: { [personId: string]: { [itemId: string]: number } };
+    itemTotals: { [itemId: string]: number };
+    personTotals: { [personId: string]: number };
+    grandTotal: number;
+  } {
+    const matrix: { [personId: string]: { [itemId: string]: number } } = {};
+    const itemTotals: { [itemId: string]: number } = {};
+    const personTotals: { [personId: string]: number } = {};
+
+    bill.persons.forEach(person => {
+      matrix[person.id] = {};
+      personTotals[person.id] = 0;
+      bill.items.forEach(item => {
+        matrix[person.id][item.id] = 0;
+        if (!itemTotals[item.id]) {
+          itemTotals[item.id] = 0;
+        }
+      });
+    });
+
+    bill.items.forEach(item => {
+      if (item.dividers.length === 0) {
+        return;
+      }
+
+      const splitAmount = item.price / item.dividers.length;
+      item.dividers.forEach(personId => {
+        if (!matrix[personId]) {
+          return;
+        }
+
+        matrix[personId][item.id] = splitAmount;
+        personTotals[personId] += splitAmount;
+        itemTotals[item.id] += splitAmount;
+      });
+    });
+
+    const grandTotal = Object.values(personTotals).reduce((sum, total) => sum + total, 0);
+
+    return { matrix, itemTotals, personTotals, grandTotal };
+  }
+
+  private renderExportSummaryTable(
+    bill: Bill,
+    matrix: { [personId: string]: { [itemId: string]: number } },
+    itemTotals: { [itemId: string]: number },
+    personTotals: { [personId: string]: number },
+    grandTotal: number,
+    personColumnWidth: number,
+    columnWidths: number[]
+  ): string {
+    const safeWidths = columnWidths.length === bill.items.length + 1
+      ? columnWidths
+      : [...bill.items.map(() => 120), 100];
+
+    return `
+      <div class="export-summary-table-shell">
+        <table class="export-summary-table">
+          <colgroup>
+            <col style="width: ${personColumnWidth}px; min-width: ${personColumnWidth}px; max-width: ${personColumnWidth}px;">
+            ${safeWidths.map(width => `<col style="width: ${width}px; min-width: ${width}px; max-width: ${width}px;">`).join('')}
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="export-person-header">Person</th>
+              ${bill.items.map(item => `
+                <th class="export-item-header">
+                  <div class="export-header-title">${item.name}</div>
+                  <div class="export-header-meta">$${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div class="export-header-meta">${item.dividers.length} ${item.dividers.length === 1 ? 'person' : 'people'}</div>
+                </th>
+              `).join('')}
+              <th class="export-total-header">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${bill.persons.map((person, personIndex) => `
+              <tr class="${personIndex % 2 === 0 ? 'export-row-even' : 'export-row-odd'}">
+                <th class="export-person-cell">${person.name}</th>
+                ${bill.items.map(item => {
+                  const amount = matrix[person.id][item.id];
+                  const isChecked = item.dividers.includes(person.id);
+
+                  return `
+                    <td class="export-value-cell">
+                      <div class="export-value-mark ${isChecked ? 'is-active' : ''}">${isChecked ? '✓' : '○'}</div>
+                      <div class="export-value-amount ${amount > 0 ? 'has-amount' : ''}">${amount > 0 ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</div>
+                    </td>
+                  `;
+                }).join('')}
+                <td class="export-total-cell">$${personTotals[person.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th class="export-grand-label">Total</th>
+              ${bill.items.map(item => `
+                <td class="export-grand-total">$${itemTotals[item.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+              `).join('')}
+              <td class="export-grand-total">$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+  }
+
   private attachSummaryTableHoverEffects(): void {
     const summaryScroll = document.querySelector('.summary-table-body-scroll');
     const summaryFixed = document.querySelector('.summary-table-body-fixed');
@@ -1867,6 +1967,26 @@ export class BillCalculatorUI {
   private syncSummaryTableRowHeights(): void {
     const fixedRows = document.querySelectorAll<HTMLElement>('.summary-table-body-fixed tr');
     const scrollRows = document.querySelectorAll<HTMLElement>('.summary-table-body-scroll tr');
+    if (fixedRows.length === 0 || scrollRows.length === 0) return;
+
+    fixedRows.forEach(row => {
+      row.style.height = 'auto';
+    });
+    scrollRows.forEach(row => {
+      row.style.height = 'auto';
+    });
+
+    const rowCount = Math.min(fixedRows.length, scrollRows.length);
+    for (let index = 0; index < rowCount; index += 1) {
+      const height = Math.max(fixedRows[index].offsetHeight, scrollRows[index].offsetHeight);
+      fixedRows[index].style.height = `${height}px`;
+      scrollRows[index].style.height = `${height}px`;
+    }
+  }
+
+  private syncSummaryTableRowHeightsWithin(root: ParentNode): void {
+    const fixedRows = root.querySelectorAll<HTMLElement>('.summary-table-body-fixed tr');
+    const scrollRows = root.querySelectorAll<HTMLElement>('.summary-table-body-scroll tr');
     if (fixedRows.length === 0 || scrollRows.length === 0) return;
 
     fixedRows.forEach(row => {
@@ -2706,7 +2826,7 @@ export class BillCalculatorUI {
 
   }
 
-    exportTableToImage(): void {
+  async exportTableToImage(): Promise<void> {
     if (!this.currentBillId) return;
 
     const bill = this.calculator.getBill(this.currentBillId);
@@ -2715,7 +2835,31 @@ export class BillCalculatorUI {
       return;
     }
 
-    // Create a temporary container for export
+    const summaryRoot = document.getElementById('summaryTable');
+    const summaryContainer = summaryRoot?.querySelector('.summary-table-container') as HTMLElement | null;
+    const headerFixed = summaryContainer?.querySelector('.summary-table-header-fixed') as HTMLElement | null;
+    const bodyScroll = summaryContainer?.querySelector('.summary-table-body-scroll') as HTMLElement | null;
+    const sourceBodyRow = summaryRoot?.querySelector('.summary-table-body-scroll tr[data-row-index^="person-"]') as HTMLTableRowElement | null
+      || summaryRoot?.querySelector('.summary-table-body-scroll tr[data-row-index="total"]') as HTMLTableRowElement | null;
+
+    if (!summaryRoot || !summaryContainer || !headerFixed || !bodyScroll) {
+      alert('Summary table is not ready to export. Please try again.');
+      return;
+    }
+
+    const fixedWidth = Math.ceil(headerFixed.offsetWidth);
+    const sourceBodyColumnWidths = sourceBodyRow
+      ? Array.from(sourceBodyRow.querySelectorAll<HTMLElement>('[data-col-index]')).map(cell => Math.ceil(cell.getBoundingClientRect().width))
+      : [];
+    const sourceHeaderCellWidths = Array.from(summaryRoot.querySelectorAll<HTMLElement>('.summary-table-header-cell')).map(cell => Math.ceil(cell.getBoundingClientRect().width));
+    const resolvedColumnWidths = sourceBodyColumnWidths.length === sourceHeaderCellWidths.length && sourceBodyColumnWidths.length > 0
+      ? sourceBodyColumnWidths
+      : sourceHeaderCellWidths;
+    const resolvedScrollWidth = resolvedColumnWidths.reduce((sum, width) => sum + width, 0);
+    const scrollWidth = Math.max(Math.ceil(bodyScroll.scrollWidth), resolvedScrollWidth);
+    const totalSummaryWidth = fixedWidth + scrollWidth;
+    const { matrix, itemTotals, personTotals, grandTotal } = this.calculateSummaryMatrix(bill);
+
     const exportContainer = document.createElement('div');
     exportContainer.style.position = 'absolute';
     exportContainer.style.left = '-10000px';
@@ -2724,8 +2868,9 @@ export class BillCalculatorUI {
     exportContainer.style.padding = '20px';
     exportContainer.style.fontFamily = 'Arial, sans-serif';
     exportContainer.style.color = this.isDarkTheme ? '#f9fafb' : '#212529';
+    exportContainer.style.width = `${totalSummaryWidth + 40}px`;
+    exportContainer.style.boxSizing = 'border-box';
 
-    // Get current date for export
     const currentDate = new Date().toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
@@ -2734,326 +2879,192 @@ export class BillCalculatorUI {
       minute: '2-digit'
     });
 
-    // Create export content
     exportContainer.innerHTML = `
       <div style="margin-bottom: 20px; text-align: center;">
         <h2 style="margin: 0 0 10px 0; color: ${this.isDarkTheme ? '#f3f4f6' : '#212529'};">Bill Calculator Export</h2>
         <h3 style="margin: 0 0 5px 0; color: ${this.isDarkTheme ? '#f9fafb' : '#495057'};">${bill.name}</h3>
         <p style="margin: 0; font-size: 14px; color: ${this.isDarkTheme ? '#cccccc' : '#6c757d'};">Generated on ${currentDate}</p>
       </div>
-      ${document.querySelector('.summary-table-container')?.outerHTML || ''}
+      <style>
+        .export-summary-table-shell {
+          width: ${totalSummaryWidth}px;
+          border: 1px solid ${this.isDarkTheme ? '#374151' : '#495057'};
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 10px 15px -3px ${this.isDarkTheme ? 'rgba(0, 0, 0, 0.35)' : 'rgba(0, 0, 0, 0.1)'};
+        }
+
+        .export-summary-table {
+          width: ${totalSummaryWidth}px;
+          border-collapse: collapse;
+          table-layout: fixed;
+          background: ${this.isDarkTheme ? '#1f2937' : '#ffffff'};
+          color: ${this.isDarkTheme ? '#f9fafb' : '#212529'};
+        }
+
+        .export-summary-table th,
+        .export-summary-table td {
+          border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'};
+          box-sizing: border-box;
+        }
+
+        .export-summary-table thead th {
+          background: ${this.isDarkTheme ? '#111827' : '#343a40'};
+          color: ${this.isDarkTheme ? '#f3f4f6' : '#ffffff'};
+          padding: 12px 10px;
+          text-align: center;
+          vertical-align: middle;
+        }
+
+        .export-person-header,
+        .export-person-cell,
+        .export-grand-label {
+          width: ${fixedWidth}px;
+          min-width: ${fixedWidth}px;
+          max-width: ${fixedWidth}px;
+          text-align: left;
+          padding: 14px 16px;
+        }
+
+        .export-person-cell {
+          font-weight: 700;
+          letter-spacing: 0.01em;
+        }
+
+        .export-item-header {
+          padding: 12px 8px;
+        }
+
+        .export-total-header,
+        .export-total-cell,
+        .export-grand-total,
+        .export-grand-label {
+          background: ${this.isDarkTheme ? '#059669' : '#28a745'};
+          color: #ffffff;
+          font-weight: 700;
+        }
+
+        .export-summary-table tfoot th,
+        .export-summary-table tfoot td {
+          background: ${this.isDarkTheme ? '#059669' : '#28a745'};
+          color: #ffffff;
+          font-weight: 700;
+        }
+
+        .export-header-title {
+          font-size: 13px;
+          font-weight: 700;
+          line-height: 1.35;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+
+        .export-header-meta {
+          margin-top: 4px;
+          font-size: 11px;
+          line-height: 1.3;
+          color: ${this.isDarkTheme ? '#d1d5db' : '#e9ecef'};
+        }
+
+        .export-row-even td,
+        .export-row-even .export-person-cell {
+          background: ${this.isDarkTheme ? '#374151' : '#f8f9fa'};
+          color: ${this.isDarkTheme ? '#f9fafb' : '#212529'};
+        }
+
+        .export-row-odd td,
+        .export-row-odd .export-person-cell {
+          background: ${this.isDarkTheme ? '#4b5563' : '#e9ecef'};
+          color: ${this.isDarkTheme ? '#f9fafb' : '#212529'};
+        }
+
+        .export-value-cell {
+          padding: 10px 8px;
+          text-align: center;
+          vertical-align: middle;
+        }
+
+        .export-value-mark {
+          font-size: 16px;
+          font-weight: 700;
+          line-height: 1;
+          color: ${this.isDarkTheme ? '#9ca3af' : '#6c757d'};
+        }
+
+        .export-value-mark.is-active {
+          color: ${this.isDarkTheme ? '#10b981' : '#28a745'};
+        }
+
+        .export-value-amount {
+          margin-top: 6px;
+          font-size: 11px;
+          line-height: 1.3;
+          color: ${this.isDarkTheme ? '#d1d5db' : '#6c757d'};
+        }
+
+        .export-value-amount.has-amount {
+          color: ${this.isDarkTheme ? '#6ee7b7' : '#218838'};
+          font-weight: 700;
+        }
+
+        .export-total-cell,
+        .export-grand-total {
+          padding: 12px 8px;
+          text-align: center;
+        }
+
+        .export-grand-label,
+        .export-grand-total {
+          box-shadow: none;
+        }
+      </style>
+      ${this.renderExportSummaryTable(bill, matrix, itemTotals, personTotals, grandTotal, fixedWidth, resolvedColumnWidths)}
     `;
 
     document.body.appendChild(exportContainer);
 
-    // Use html2canvas alternative - create canvas manually
-    this.createTableImageCanvas(exportContainer, bill.name);
-
-    // Remove temporary container
-    document.body.removeChild(exportContainer);
-  }
-
-  private createTableImageCanvas(container: HTMLElement, billName: string): void {
-    // Create canvas
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Get bill data for calculations
-    const bill = this.calculator.getBill(this.currentBillId!);
-    if (!bill) return;
-
-    // Calculate dynamic canvas width based on content
-    const minPersonColWidth = 180;
-    const minItemColWidth = 100;
-    const minTotalColWidth = 100;
-    const padding = 40;
-    const borderWidth = 2;
-    
-    // Calculate optimal width
-    const minWidth = minPersonColWidth + (bill.items.length * minItemColWidth) + minTotalColWidth + padding;
-    const maxWidth = 1400; // Maximum reasonable width
-    const optimalWidth = Math.min(Math.max(minWidth, 800), maxWidth);
-
-    // Set canvas size
-    canvas.width = optimalWidth;
-    canvas.height = Math.max(600, 200 + (bill.persons.length + 2) * 45); // Dynamic height
-
-    // Calculate dynamic column widths
-    const availableWidth = canvas.width - padding;
-    const personColWidth = minPersonColWidth;
-    const totalColWidth = minTotalColWidth;
-    const availableForItems = availableWidth - personColWidth - totalColWidth;
-    const itemColWidth = Math.max(minItemColWidth, availableForItems / bill.items.length);
-
-    // Fill background
-    ctx.fillStyle = this.isDarkTheme ? '#1f2937' : '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Calculate matrix data
-    const matrix: { [personId: string]: { [itemId: string]: number } } = {};
-    const itemTotals: { [itemId: string]: number } = {};
-    const personTotals: { [personId: string]: number } = {};
-
-    bill.persons.forEach(person => {
-      matrix[person.id] = {};
-      personTotals[person.id] = 0;
-      bill.items.forEach(item => {
-        matrix[person.id][item.id] = 0;
-        if (!itemTotals[item.id]) {
-          itemTotals[item.id] = 0;
-        }
-      });
-    });
-
-    bill.items.forEach(item => {
-      if (item.dividers.length > 0) {
-        const splitAmount = item.price / item.dividers.length;
-        item.dividers.forEach(personId => {
-          if (matrix[personId]) {
-            matrix[personId][item.id] = splitAmount;
-            personTotals[personId] += splitAmount;
-            itemTotals[item.id] += splitAmount;
-          }
-        });
+    try {
+      const fontSet = (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts;
+      if (fontSet) {
+        await fontSet.ready;
       }
-    });
 
-    const grandTotal = Object.values(personTotals).reduce((sum, total) => sum + total, 0);
+      const { default: html2canvas } = await import('html2canvas');
 
-    // Draw header
-    ctx.fillStyle = this.isDarkTheme ? '#f3f4f6' : '#212529';
-    ctx.font = 'bold 24px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('Bill Calculator Export', canvas.width / 2, 40);
+      const canvas = await html2canvas(exportContainer, {
+        backgroundColor: this.isDarkTheme ? '#1f2937' : '#ffffff',
+        scale: Math.min(window.devicePixelRatio || 1, 2),
+        useCORS: true,
+        logging: false,
+        width: Math.ceil(exportContainer.scrollWidth),
+        height: Math.ceil(exportContainer.scrollHeight),
+        windowWidth: Math.ceil(exportContainer.scrollWidth),
+        windowHeight: Math.ceil(exportContainer.scrollHeight),
+        scrollX: 0,
+        scrollY: 0
+      });
 
-    ctx.font = 'bold 18px Arial';
-    ctx.fillStyle = this.isDarkTheme ? '#f9fafb' : '#495057';
-    ctx.fillText(bill.name, canvas.width / 2, 70);
-
-    ctx.font = '14px Arial';
-    ctx.fillStyle = this.isDarkTheme ? '#cccccc' : '#6c757d';
-    const currentDate = new Date().toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-    ctx.fillText(`Generated on ${currentDate}`, canvas.width / 2, 90);
-
-    // Table drawing parameters
-    const startY = 120;
-    const cellHeight = 45;
-    const headerHeight = 55;
-    const tableStartX = padding / 2;
-    const tableWidth = canvas.width - padding;
-
-    // Draw table border
-    ctx.strokeStyle = this.isDarkTheme ? '#374151' : '#495057';
-    ctx.lineWidth = borderWidth;
-    ctx.strokeRect(tableStartX, startY, tableWidth, headerHeight + (bill.persons.length + 1) * cellHeight);
-
-    // Draw table header background
-    ctx.fillStyle = this.isDarkTheme ? '#111827' : '#343a40';
-    ctx.fillRect(tableStartX, startY, tableWidth, headerHeight);
-
-    // Draw column separators for header
-    ctx.strokeStyle = this.isDarkTheme ? '#374151' : '#6c757d';
-    ctx.lineWidth = 1;
-    let currentX = tableStartX + personColWidth;
-    ctx.moveTo(currentX, startY);
-    ctx.lineTo(currentX, startY + headerHeight);
-    ctx.stroke();
-
-    bill.items.forEach((item, index) => {
-      currentX += itemColWidth;
-      ctx.moveTo(currentX, startY);
-      ctx.lineTo(currentX, startY + headerHeight);
-      ctx.stroke();
-    });
-
-    // Draw table header text
-    ctx.fillStyle = this.isDarkTheme ? '#f3f4f6' : '#ffffff';
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'left';
-    ctx.fillText('Person', tableStartX + 15, startY + 25);
-
-    // Draw item headers with text wrapping
-    currentX = tableStartX + personColWidth;
-    bill.items.forEach(item => {
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 14px Arial';
-      
-      // Wrap text if too long
-      const maxWidth = itemColWidth - 20;
-      const words = item.name.split(' ');
-      let line = '';
-      let lines = [];
-      
-      for (let n = 0; n < words.length; n++) {
-        const testLine = line + words[n] + ' ';
-        const metrics = ctx.measureText(testLine);
-        const testWidth = metrics.width;
-        
-        if (testWidth > maxWidth && n > 0) {
-          lines.push(line);
-          line = words[n] + ' ';
-        } else {
-          line = testLine;
+      canvas.toBlob(blob => {
+        if (!blob) {
+          alert('Unable to create export image. Please try again.');
+          return;
         }
-      }
-      lines.push(line);
 
-      // Draw wrapped text
-      const lineHeight = 16;
-      const startLineY = startY + 20 - ((lines.length - 1) * lineHeight / 2);
-      lines.forEach((textLine, lineIndex) => {
-        ctx.fillText(textLine.trim(), currentX + itemColWidth / 2, startLineY + (lineIndex * lineHeight));
-      });
-
-      // Draw price
-      ctx.font = '12px Arial';
-      ctx.fillStyle = this.isDarkTheme ? '#cccccc' : '#e9ecef';
-      ctx.fillText(`($${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`, currentX + itemColWidth / 2, startY + 45);
-      ctx.fillStyle = this.isDarkTheme ? '#f3f4f6' : '#ffffff';
-      
-      currentX += itemColWidth;
-    });
-
-    // Draw "Total" header
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('Total', currentX + totalColWidth / 2, startY + 30);
-
-    // Draw person rows
-    let currentY = startY + headerHeight;
-    bill.persons.forEach((person, personIndex) => {
-      // Alternate row colors
-      const rowColor = personIndex % 2 === 0 
-        ? (this.isDarkTheme ? '#374151' : '#f8f9fa')
-        : (this.isDarkTheme ? '#4b5563' : '#e9ecef');
-      
-      ctx.fillStyle = rowColor;
-      ctx.fillRect(tableStartX, currentY, tableWidth, cellHeight);
-
-      // Person name background
-      ctx.fillStyle = this.isDarkTheme ? '#374151' : '#6c757d';
-      ctx.fillRect(tableStartX, currentY, personColWidth, cellHeight);
-
-      // Draw column separators for row
-      ctx.strokeStyle = this.isDarkTheme ? '#4b5563' : '#dee2e6';
-      ctx.lineWidth = 1;
-      currentX = tableStartX + personColWidth;
-      ctx.moveTo(currentX, currentY);
-      ctx.lineTo(currentX, currentY + cellHeight);
-      ctx.stroke();
-
-      bill.items.forEach((item, index) => {
-        currentX += itemColWidth;
-        ctx.moveTo(currentX, currentY);
-        ctx.lineTo(currentX, currentY + cellHeight);
-        ctx.stroke();
-      });
-
-      // Person name text
-      ctx.fillStyle = this.isDarkTheme ? '#f9fafb' : '#ffffff';
-      ctx.font = 'bold 16px Arial';
-      ctx.textAlign = 'left';
-      
-      // Truncate long names if needed
-      let displayName = person.name;
-      const maxNameWidth = personColWidth - 30;
-      while (ctx.measureText(displayName).width > maxNameWidth && displayName.length > 3) {
-        displayName = displayName.substring(0, displayName.length - 4) + '...';
-      }
-      ctx.fillText(displayName, tableStartX + 15, currentY + 28);
-
-      // Item amounts
-      currentX = tableStartX + personColWidth;
-      bill.items.forEach(item => {
-        const amount = matrix[person.id][item.id];
-        const isChecked = item.dividers.includes(person.id);
-        
-        ctx.textAlign = 'center';
-        ctx.font = 'bold 14px Arial';
-        
-        if (isChecked && amount > 0) {
-          ctx.fillStyle = this.isDarkTheme ? '#10b981' : '#28a745';
-          ctx.fillText('✓', currentX + itemColWidth / 2, currentY + 20);
-          ctx.font = '12px Arial';
-          ctx.fillText(`$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, currentX + itemColWidth / 2, currentY + 35);
-        } else {
-          ctx.fillStyle = this.isDarkTheme ? '#9ca3af' : '#6c757d';
-          ctx.font = '16px Arial';
-          ctx.fillText('-', currentX + itemColWidth / 2, currentY + 28);
-        }
-        
-        currentX += itemColWidth;
-      });
-
-      // Person total
-      ctx.fillStyle = this.isDarkTheme ? '#059669' : '#28a745';
-      ctx.fillRect(currentX, currentY, totalColWidth, cellHeight);
-      ctx.fillStyle = this.isDarkTheme ? '#f0fff4' : '#ffffff';
-      ctx.font = 'bold 16px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(`$${personTotals[person.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, currentX + totalColWidth / 2, currentY + 28);
-
-      currentY += cellHeight;
-    });
-
-    // Draw totals row
-    ctx.fillStyle = this.isDarkTheme ? '#059669' : '#28a745';
-    ctx.fillRect(tableStartX, currentY, tableWidth, cellHeight);
-
-    // Draw column separators for totals row
-    ctx.strokeStyle = this.isDarkTheme ? '#047857' : '#1e7e34';
-    ctx.lineWidth = 1;
-    currentX = tableStartX + personColWidth;
-    ctx.moveTo(currentX, currentY);
-    ctx.lineTo(currentX, currentY + cellHeight);
-    ctx.stroke();
-
-    bill.items.forEach((item, index) => {
-      currentX += itemColWidth;
-      ctx.moveTo(currentX, currentY);
-      ctx.lineTo(currentX, currentY + cellHeight);
-      ctx.stroke();
-    });
-
-    ctx.fillStyle = this.isDarkTheme ? '#f0fff4' : '#ffffff';
-    ctx.font = 'bold 18px Arial';
-    ctx.textAlign = 'left';
-    ctx.fillText('Total', tableStartX + 15, currentY + 30);
-
-    // Item totals
-    currentX = tableStartX + personColWidth;
-    ctx.font = 'bold 16px Arial';
-    bill.items.forEach(item => {
-      ctx.textAlign = 'center';
-      ctx.fillText(`$${itemTotals[item.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, currentX + itemColWidth / 2, currentY + 30);
-      currentX += itemColWidth;
-    });
-
-    // Grand total
-    ctx.font = 'bold 18px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(`$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, currentX + totalColWidth / 2, currentY + 30);
-
-    // Download the image
-    canvas.toBlob((blob) => {
-      if (blob) {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `${billName.replace(/[^a-zA-Z0-9]/g, '_')}_summary_${new Date().toISOString().split('T')[0]}.png`;
+        link.download = `${bill.name.replace(/[^a-zA-Z0-9]/g, '_')}_summary_${new Date().toISOString().split('T')[0]}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-      }
-    }, 'image/png');
+      }, 'image/png');
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Unable to export the summary right now. Please try again.');
+    } finally {
+      document.body.removeChild(exportContainer);
+    }
   }
 
 }
