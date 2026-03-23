@@ -13,6 +13,10 @@ export class BillCalculatorUI {
   private isDarkTheme: boolean;
   private toastTimeoutId: number | null = null;
   private readonly draftStorageKey = 'billCalculatorDraft';
+  private readonly maxHistoryEntries = 50;
+  private undoStack: SavedDraftState[] = [];
+  private redoStack: SavedDraftState[] = [];
+  private isApplyingHistory = false;
 
   constructor() {
     this.calculator = new BillCalculator();
@@ -44,6 +48,8 @@ export class BillCalculatorUI {
             <button onclick="billUI.createNewBill()" class="btn btn-primary">Create Bill</button>
           </div>
           <div class="bill-management-actions">
+            <button id="undoBtn" onclick="billUI.undoLastChange()" class="btn btn-secondary" disabled>Undo</button>
+            <button id="redoBtn" onclick="billUI.redoLastChange()" class="btn btn-secondary" disabled>Redo</button>
             <button id="clearDraftBtn" onclick="billUI.clearSavedDraft()" class="btn btn-secondary" disabled>Clear Saved Draft</button>
           </div>
           <div id="billsList"></div>
@@ -358,6 +364,7 @@ export class BillCalculatorUI {
 
         .bill-management-actions {
           display: flex;
+          gap: 10px;
           justify-content: flex-end;
           margin-bottom: 15px;
         }
@@ -1711,7 +1718,63 @@ export class BillCalculatorUI {
     this.attachSummaryTableResizeSupport();
     this.updateBillsList();
     this.updateDraftActionState();
+    this.updateHistoryActionState();
     this.restoreDraftState();
+  }
+
+  private createHistorySnapshot(): SavedDraftState {
+    return {
+      version: 1,
+      currentBillId: this.currentBillId,
+      bills: this.calculator.exportBills()
+    };
+  }
+
+  private updateHistoryActionState(): void {
+    const undoButton = document.getElementById('undoBtn') as HTMLButtonElement | null;
+    const redoButton = document.getElementById('redoBtn') as HTMLButtonElement | null;
+
+    if (undoButton) {
+      undoButton.disabled = this.undoStack.length === 0;
+    }
+
+    if (redoButton) {
+      redoButton.disabled = this.redoStack.length === 0;
+    }
+  }
+
+  private recordHistorySnapshot(): void {
+    if (this.isApplyingHistory) {
+      return;
+    }
+
+    this.undoStack.push(this.createHistorySnapshot());
+    if (this.undoStack.length > this.maxHistoryEntries) {
+      this.undoStack.shift();
+    }
+
+    this.redoStack = [];
+    this.updateHistoryActionState();
+  }
+
+  private applySnapshot(snapshot: SavedDraftState): void {
+    this.isApplyingHistory = true;
+    this.calculator.loadBills(snapshot.bills);
+
+    const nextBillId = snapshot.currentBillId && this.calculator.getBill(snapshot.currentBillId)
+      ? snapshot.currentBillId
+      : snapshot.bills[0]?.id || null;
+
+    if (nextBillId) {
+      this.selectBill(nextBillId);
+    } else {
+      this.resetCurrentBillView();
+      this.updateBillsList();
+      this.saveDraftState();
+    }
+
+    this.isApplyingHistory = false;
+    this.updateHistoryActionState();
   }
 
   private updateDraftActionState(): void {
@@ -1731,6 +1794,30 @@ export class BillCalculatorUI {
     document.body.style.overflow = '';
     this.closePersonModal();
     this.closeItemModal();
+  }
+
+  undoLastChange(): void {
+    const previousSnapshot = this.undoStack.pop();
+    if (!previousSnapshot) {
+      this.updateHistoryActionState();
+      return;
+    }
+
+    this.redoStack.push(this.createHistorySnapshot());
+    this.applySnapshot(previousSnapshot);
+    this.showToast('Undid last change');
+  }
+
+  redoLastChange(): void {
+    const nextSnapshot = this.redoStack.pop();
+    if (!nextSnapshot) {
+      this.updateHistoryActionState();
+      return;
+    }
+
+    this.undoStack.push(this.createHistorySnapshot());
+    this.applySnapshot(nextSnapshot);
+    this.showToast('Redid last change');
   }
 
   private saveDraftState(): void {
@@ -1798,9 +1885,12 @@ export class BillCalculatorUI {
 
     localStorage.removeItem(this.draftStorageKey);
     this.calculator.loadBills([]);
+    this.undoStack = [];
+    this.redoStack = [];
     this.resetCurrentBillView();
     this.updateBillsList();
     this.updateDraftActionState();
+    this.updateHistoryActionState();
     this.showToast('Saved draft cleared');
   }
 
@@ -1808,7 +1898,24 @@ export class BillCalculatorUI {
     document.addEventListener('keydown', (e) => {
       const target = e.target;
       const isTextareaTarget = target instanceof HTMLTextAreaElement;
+      const isTextInputTarget = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+        || (target instanceof HTMLElement && target.isContentEditable);
       const isModifiedEnter = (e.key === 'Enter' || e.key === 'NumpadEnter') && (e.metaKey || e.ctrlKey);
+      const isUndoShortcut = (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z';
+      const isRedoShortcut = ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+        || (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'y');
+
+      if (!isTextInputTarget && isUndoShortcut) {
+        e.preventDefault();
+        this.undoLastChange();
+        return;
+      }
+
+      if (!isTextInputTarget && isRedoShortcut) {
+        e.preventDefault();
+        this.redoLastChange();
+        return;
+      }
 
       if (isModifiedEnter && this.isPersonModalOpen()) {
         e.preventDefault();
@@ -2253,6 +2360,7 @@ export class BillCalculatorUI {
       return;
     }
 
+    this.recordHistorySnapshot();
     const billId = this.calculator.createBill(billName);
     billNameInput.value = '';
     this.updateBillsList();
@@ -2281,6 +2389,7 @@ export class BillCalculatorUI {
     const confirmMessage = `Are you sure you want to delete "${bill.name}"?\n\nThis will permanently remove:\n- ${bill.persons.length} person(s)\n- ${bill.items.length} item(s)\n- All associated data\n\nThis action cannot be undone.`;
     
     if (confirm(confirmMessage)) {
+      this.recordHistorySnapshot();
       const success = this.calculator.deleteBill(billId);
       if (success) {
         if (this.currentBillId === billId) {
@@ -2391,6 +2500,7 @@ export class BillCalculatorUI {
     addButton.classList.add('loading');
     addButton.disabled = true;
 
+    this.recordHistorySnapshot();
     this.calculator.addPeople(this.currentBillId, personEntries.names);
     this.closePersonModal();
     this.updateSummaryTable();
@@ -2519,6 +2629,7 @@ export class BillCalculatorUI {
     addButton.classList.add('loading');
     addButton.disabled = true;
 
+    this.recordHistorySnapshot();
     this.calculator.addItems(this.currentBillId, itemEntries);
     this.closeItemModal();
     this.updateSummaryTable();
@@ -2775,6 +2886,7 @@ export class BillCalculatorUI {
   toggleDividerFromTable(itemId: string, personId: string): void {
     if (!this.currentBillId) return;
 
+    this.recordHistorySnapshot();
     this.calculator.togglePersonAsDivider(this.currentBillId, itemId, personId);
     this.updateSummaryTable();
     this.saveDraftState();
@@ -2787,6 +2899,7 @@ export class BillCalculatorUI {
     const person = bill?.persons.find(p => p.id === personId);
     
     if (confirm(`Remove "${person?.name}" from this bill?`)) {
+      this.recordHistorySnapshot();
       this.calculator.removePerson(this.currentBillId, personId);
       this.updateSummaryTable();
       this.saveDraftState();
@@ -2801,6 +2914,7 @@ export class BillCalculatorUI {
     const item = bill?.items.find(i => i.id === itemId);
     
     if (confirm(`Remove "${item?.name}" ($${item?.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) from this bill?`)) {
+      this.recordHistorySnapshot();
       this.calculator.removeItem(this.currentBillId, itemId);
       this.updateSummaryTable();
       this.saveDraftState();
