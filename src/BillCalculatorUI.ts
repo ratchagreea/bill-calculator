@@ -61,6 +61,9 @@ export class BillCalculatorUI {
                   <button id="exportBtn" class="export-btn-external" onclick="billUI.exportTableToImage()" style="display: none;">
                     📷 Export
                   </button>
+                  <button id="exportPdfBtn" class="export-pdf-btn-external" onclick="billUI.exportTableToPdf()" style="display: none;">
+                    PDF Export
+                  </button>
                 </div>
               </div>
               <p class="instructions-text">
@@ -604,6 +607,23 @@ export class BillCalculatorUI {
         }
         .export-btn-external:hover { 
           background-color: #5a32a3; 
+          transform: translateY(-1px);
+        }
+
+        .export-pdf-btn-external {
+          background-color: #c0392b;
+          color: white;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: normal;
+          transition: all 0.2s ease;
+        }
+
+        .export-pdf-btn-external:hover {
+          background-color: #a93226;
           transform: translateY(-1px);
         }
 
@@ -2634,12 +2654,14 @@ export class BillCalculatorUI {
     const addPersonBtn = document.getElementById('addPersonBtn')!;
     const addItemBtn = document.getElementById('addItemBtn')!;
     const exportBtn = document.getElementById('exportBtn')!;
+    const exportPdfBtn = document.getElementById('exportPdfBtn')!;
     
     if (!bill) {
       summaryTable.innerHTML = '<div class="no-data-message">Bill not found.</div>';
       addPersonBtn.style.display = 'none';
       addItemBtn.style.display = 'none';
       exportBtn.style.display = 'none';
+      exportPdfBtn.style.display = 'none';
       return;
     }
 
@@ -2670,6 +2692,7 @@ export class BillCalculatorUI {
         )}
       `;
       exportBtn.style.display = 'none';
+      exportPdfBtn.style.display = 'none';
       return;
     }
 
@@ -2683,11 +2706,13 @@ export class BillCalculatorUI {
         )}
       `;
       exportBtn.style.display = 'none';
+      exportPdfBtn.style.display = 'none';
       return;
     }
 
     // Show export button when table has data
     exportBtn.style.display = 'inline-block';
+    exportPdfBtn.style.display = 'inline-block';
 
     // Create matrix data structure
     const matrix: { [personId: string]: { [itemId: string]: number } } = {};
@@ -2826,13 +2851,13 @@ export class BillCalculatorUI {
 
   }
 
-  async exportTableToImage(): Promise<void> {
-    if (!this.currentBillId) return;
+  private async generateExportCanvas(): Promise<{ canvas: HTMLCanvasElement; bill: Bill } | null> {
+    if (!this.currentBillId) return null;
 
     const bill = this.calculator.getBill(this.currentBillId);
     if (!bill || bill.items.length === 0 || bill.persons.length === 0) {
       alert('No data to export. Please add items and people first.');
-      return;
+      return null;
     }
 
     const summaryRoot = document.getElementById('summaryTable');
@@ -2844,7 +2869,7 @@ export class BillCalculatorUI {
 
     if (!summaryRoot || !summaryContainer || !headerFixed || !bodyScroll) {
       alert('Summary table is not ready to export. Please try again.');
-      return;
+      return null;
     }
 
     const fixedWidth = Math.ceil(headerFixed.offsetWidth);
@@ -3044,27 +3069,54 @@ export class BillCalculatorUI {
         scrollY: 0
       });
 
-      canvas.toBlob(blob => {
-        if (!blob) {
-          alert('Unable to create export image. Please try again.');
-          return;
-        }
-
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${bill.name.replace(/[^a-zA-Z0-9]/g, '_')}_summary_${new Date().toISOString().split('T')[0]}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }, 'image/png');
+      return { canvas, bill };
     } catch (error) {
       console.error('Export failed:', error);
       alert('Unable to export the summary right now. Please try again.');
+      return null;
     } finally {
       document.body.removeChild(exportContainer);
     }
+  }
+
+  async exportTableToImage(): Promise<void> {
+    const exportResult = await this.generateExportCanvas();
+    if (!exportResult) return;
+
+    const { canvas, bill } = exportResult;
+    canvas.toBlob(blob => {
+      if (!blob) {
+        alert('Unable to create export image. Please try again.');
+        return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${bill.name.replace(/[^a-zA-Z0-9]/g, '_')}_summary_${new Date().toISOString().split('T')[0]}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  }
+
+  async exportTableToPdf(): Promise<void> {
+    const exportResult = await this.generateExportCanvas();
+    if (!exportResult) return;
+
+    const { canvas, bill } = exportResult;
+    const { jsPDF } = await import('jspdf');
+
+    const pdf = new jsPDF({
+      orientation: canvas.width >= canvas.height ? 'landscape' : 'portrait',
+      unit: 'px',
+      format: [canvas.width, canvas.height]
+    });
+
+    const imageData = canvas.toDataURL('image/png');
+    pdf.addImage(imageData, 'PNG', 0, 0, canvas.width, canvas.height, undefined, 'FAST');
+    pdf.save(`${bill.name.replace(/[^a-zA-Z0-9]/g, '_')}_summary_${new Date().toISOString().split('T')[0]}.pdf`);
   }
 
 }
