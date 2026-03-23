@@ -743,16 +743,17 @@ export class BillCalculatorUI {
           flex: 1 1 180px;
           min-width: 200px;
           max-width: 300px;
-          max-height: 120px;
+          min-height: 148px;
           padding: 15px; 
           background-color: var(--bg-tertiary); 
           border-radius: 8px; 
-          cursor: pointer; 
           display: flex; 
           flex-direction: column;
-          justify-content: space-between;
+          justify-content: flex-start;
+          gap: 12px;
           transition: all 0.2s ease;
           border: 2px solid transparent;
+          box-sizing: border-box;
         }
         .bill-item:hover {
           transform: translateY(-2px);
@@ -764,8 +765,9 @@ export class BillCalculatorUI {
           border-color: var(--btn-primary-hover);
         }
         .bill-item-content { 
-          flex-grow: 1; 
-          margin-bottom: 10px;
+          flex: 1 1 auto;
+          min-height: 0;
+          cursor: pointer;
         }
         .bill-item-title {
           font-size: 16px;
@@ -779,7 +781,8 @@ export class BillCalculatorUI {
         .bill-item-actions { 
           display: flex; 
           justify-content: flex-end;
-          margin-top: 10px;
+          margin-top: auto;
+          align-items: flex-end;
         }
         
         .bill-header { 
@@ -1672,6 +1675,7 @@ export class BillCalculatorUI {
           border-radius: 3px; 
           cursor: pointer; 
           font-size: 12px;
+          align-self: flex-end;
         }
         .bill-delete-btn:hover { background-color: var(--btn-danger-hover); }
         
@@ -2280,8 +2284,9 @@ export class BillCalculatorUI {
   }
 
   private renderBillOverview(bill: Bill): string {
-    const { subtotal, grandTotal } = this.calculateBillChargeTotals(bill);
+    const { subtotal, unassignedItemsTotal, grandTotal } = this.calculateBillChargeTotals(bill);
     const assignedItems = bill.items.filter(item => item.dividers.length > 0).length;
+    const unassignedItemsCount = bill.items.length - assignedItems;
 
     return `
       <div class="bill-overview-grid">
@@ -2293,24 +2298,26 @@ export class BillCalculatorUI {
         <div class="bill-overview-card">
           <span class="bill-overview-label">Items</span>
           <span class="bill-overview-value">${bill.items.length}</span>
-          <span class="bill-overview-subtext">Line items added so far</span>
+          <span class="bill-overview-subtext">${assignedItems} active, ${unassignedItemsCount} unassigned</span>
         </div>
         <div class="bill-overview-card">
-          <span class="bill-overview-label">Bill Total</span>
+          <span class="bill-overview-label">Split Total</span>
           <span class="bill-overview-value">$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          <span class="bill-overview-subtext">Base subtotal $${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} before service, tax, and tip</span>
+          <span class="bill-overview-subtext">Active subtotal $${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} before service, tax, and tip</span>
         </div>
         <div class="bill-overview-card">
-          <span class="bill-overview-label">Assigned Items</span>
-          <span class="bill-overview-value">${assignedItems}</span>
-          <span class="bill-overview-subtext">Items already split with people</span>
+          <span class="bill-overview-label">Unassigned</span>
+          <span class="bill-overview-value">$${unassignedItemsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          <span class="bill-overview-subtext">${unassignedItemsCount} item(s) not included in the split yet</span>
         </div>
       </div>
     `;
   }
 
   private calculateBillChargeTotals(bill: Bill): {
+    totalItemsPrice: number;
     subtotal: number;
+    unassignedItemsTotal: number;
     subtotalAfterService: number;
     taxAmount: number;
     serviceAmount: number;
@@ -2318,6 +2325,7 @@ export class BillCalculatorUI {
     totalCharges: number;
     grandTotal: number;
   } {
+    const totalItemsPrice = bill.items.reduce((sum, item) => sum + item.price, 0);
     const subtotal = bill.items.reduce((sum, item) => {
       if (item.dividers.length === 0) {
         return sum;
@@ -2325,6 +2333,7 @@ export class BillCalculatorUI {
 
       return sum + item.price;
     }, 0);
+    const unassignedItemsTotal = totalItemsPrice - subtotal;
     const serviceAmount = bill.charges.serviceEnabled ? subtotal * (bill.charges.serviceRate / 100) : 0;
     const subtotalAfterService = subtotal + serviceAmount;
     const taxAmount = bill.charges.taxEnabled ? subtotalAfterService * (bill.charges.taxRate / 100) : 0;
@@ -2332,11 +2341,11 @@ export class BillCalculatorUI {
     const totalCharges = taxAmount + serviceAmount + tipAmount;
     const grandTotal = subtotal + totalCharges;
 
-    return { subtotal, subtotalAfterService, taxAmount, serviceAmount, tipAmount, totalCharges, grandTotal };
+    return { totalItemsPrice, subtotal, unassignedItemsTotal, subtotalAfterService, taxAmount, serviceAmount, tipAmount, totalCharges, grandTotal };
   }
 
   private renderChargeControls(bill: Bill): string {
-    const { subtotal, subtotalAfterService, taxAmount, serviceAmount, tipAmount, grandTotal } = this.calculateBillChargeTotals(bill);
+    const { subtotal, unassignedItemsTotal, subtotalAfterService, taxAmount, serviceAmount, tipAmount, grandTotal } = this.calculateBillChargeTotals(bill);
 
     return `
       <div class="charges-card">
@@ -2415,7 +2424,8 @@ export class BillCalculatorUI {
           </label>
         </div>
         <div class="charges-summary">
-          <div class="charges-pill">Base Subtotal: $${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div class="charges-pill">Active Subtotal: $${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div class="charges-pill">Unassigned Items: $${unassignedItemsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           <div class="charges-pill">Service: $${serviceAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           <div class="charges-pill">Subtotal After Service: $${subtotalAfterService.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           <div class="charges-pill">Tax: $${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
@@ -3403,6 +3413,7 @@ export class BillCalculatorUI {
     billsList.innerHTML = bills.map(bill => {
       const totalAmount = this.calculator.calculateBillSummary(bill.id)
         .reduce((sum, summary) => sum + summary.totalAmount, 0);
+      const { unassignedItemsTotal } = this.calculateBillChargeTotals(bill);
       
       return `
         <div class="bill-item ${bill.id === this.currentBillId ? 'active' : ''}">
@@ -3411,7 +3422,8 @@ export class BillCalculatorUI {
             <div class="bill-item-stats" style="color: ${bill.id === this.currentBillId ? '#ffffff' : 'var(--text-secondary)'};">
               👥 ${bill.persons.length} person(s)<br>
               🧾 ${bill.items.length} item(s)<br>
-              💰 Total: $${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              💰 Split total: $${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<br>
+              ⏳ Unassigned: $${unassignedItemsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
           <div class="bill-item-actions">
@@ -3643,6 +3655,7 @@ export class BillCalculatorUI {
     const scrollWidth = Math.max(Math.ceil(bodyScroll.scrollWidth), resolvedScrollWidth);
     const totalSummaryWidth = fixedWidth + scrollWidth;
     const { matrix, itemTotals, personTotals, subtotal, subtotalAfterService, taxAmount, serviceAmount, tipAmount, grandTotal } = this.calculateSummaryMatrix(bill);
+    const { unassignedItemsTotal } = this.calculateBillChargeTotals(bill);
 
     const exportContainer = document.createElement('div');
     exportContainer.style.position = 'absolute';
@@ -3670,7 +3683,8 @@ export class BillCalculatorUI {
         <p style="margin: 0; font-size: 14px; color: ${this.isDarkTheme ? '#cccccc' : '#6c757d'};">Generated on ${currentDate}</p>
       </div>
       <div style="display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 18px 0; justify-content: center;">
-        <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Base Subtotal: $${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Active Subtotal: $${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Unassigned Items: $${unassignedItemsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
         <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Service: $${serviceAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
         <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Subtotal After Service: $${subtotalAfterService.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
         <div style="padding: 10px 12px; border-radius: 10px; border: 1px solid ${this.isDarkTheme ? '#374151' : '#dee2e6'}; background: ${this.isDarkTheme ? '#111827' : '#f8f9fa'}; font-size: 13px; font-weight: 700;">Tax: $${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
