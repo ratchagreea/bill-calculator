@@ -7,9 +7,45 @@ interface SavedDraftState {
   bills: Bill[];
 }
 
+interface BillTransferFile {
+  version: 1;
+  source: 'bill-calculator';
+  exportType: 'single-bill' | 'bill-list';
+  exportedAt: string;
+  currentBillId: string | null;
+  bills: Bill[];
+}
+
+type BillImportMode = 'merge' | 'replace';
+
+interface BillImportPreviewEntry {
+  billId: string;
+  originalName: string;
+  finalName: string;
+  personsCount: number;
+  itemsCount: number;
+  renamed: boolean;
+  regeneratedId: boolean;
+  invalidPersonsDropped: number;
+  invalidItemsDropped: number;
+  invalidDividerReferencesRemoved: number;
+  selected: boolean;
+}
+
+interface PendingBillImportPreview {
+  sourceName: string;
+  importMode: BillImportMode;
+  preferredImportedBillId: string | null;
+  preparedBills: Bill[];
+  entries: BillImportPreviewEntry[];
+  currentBillCount: number;
+  ignoredBillCount: number;
+}
+
 export class BillCalculatorUI {
   private calculator: BillCalculator;
   private currentBillId: string | null = null;
+  private currentItemAssignmentItemId: string | null = null;
   private showOnlyUnassignedItems = false;
   private isDarkTheme: boolean;
   private toastTimeoutId: number | null = null;
@@ -18,6 +54,7 @@ export class BillCalculatorUI {
   private undoStack: SavedDraftState[] = [];
   private redoStack: SavedDraftState[] = [];
   private isApplyingHistory = false;
+  private pendingBillImportPreview: PendingBillImportPreview | null = null;
 
   constructor() {
     this.calculator = new BillCalculator();
@@ -51,7 +88,16 @@ export class BillCalculatorUI {
           <div class="bill-management-actions">
             <button id="undoBtn" onclick="billUI.undoLastChange()" class="btn btn-secondary" disabled>Undo</button>
             <button id="redoBtn" onclick="billUI.redoLastChange()" class="btn btn-secondary" disabled>Redo</button>
+            <button id="exportBillJsonBtn" onclick="billUI.exportCurrentBillJson()" class="btn btn-secondary" disabled>Export Bill JSON</button>
+            <button id="exportAllBillsJsonBtn" onclick="billUI.exportAllBillsJson()" class="btn btn-secondary" disabled>Export All Bills JSON</button>
+            <button id="importBillJsonBtn" onclick="billUI.openBillImportPicker('merge')" class="btn btn-secondary">Import Merge JSON</button>
+            <button id="importReplaceBillJsonBtn" onclick="billUI.openBillImportPicker('replace')" class="btn btn-secondary">Import Replace JSON</button>
             <button id="clearDraftBtn" onclick="billUI.clearSavedDraft()" class="btn btn-secondary" disabled>Clear Saved Draft</button>
+          </div>
+          <input id="billImportInput" type="file" accept=".json,application/json" style="display: none;">
+          <div id="billImportDropZone" class="bill-import-dropzone" tabindex="0" role="button" aria-label="Drop Bill Calculator JSON file here or click to import by merging">
+            <div class="bill-import-dropzone-title">Drop Bill JSON here</div>
+            <div class="bill-import-dropzone-text">Drop a .json export file to import it. Click to merge, use the replace button above to overwrite current bills, or hold Shift while dropping to replace directly.</div>
           </div>
           <div id="billsList"></div>
         </div>
@@ -86,6 +132,9 @@ export class BillCalculatorUI {
                   </button>
                   <button id="exportPdfBtn" class="export-pdf-btn-external" onclick="billUI.exportTableToPdf()" style="display: none;">
                     PDF Export
+                  </button>
+                  <button id="exportCsvBtn" class="export-csv-btn-external" onclick="billUI.exportTableToCsv()" style="display: none;">
+                    CSV Export
                   </button>
                 </div>
               </div>
@@ -197,6 +246,72 @@ export class BillCalculatorUI {
               </button>
               <button class="modal-btn modal-btn-primary" onclick="billUI.addItemFromModal()" id="addItemSubmitBtn">
                 <span>Add Item</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Item Assignment Modal -->
+        <div id="itemAssignmentModal" class="modal-overlay" style="display: none;" aria-hidden="true">
+          <div class="modal-content" data-modal="assignment">
+            <div class="modal-header">
+              <h3 class="modal-title">Assign Selected People</h3>
+              <button class="modal-close" onclick="billUI.closeItemAssignmentModal()" aria-label="Close modal">×</button>
+            </div>
+            <div class="modal-body">
+              <div class="modal-form-group">
+                <label class="modal-label" id="itemAssignmentModalLabel">Choose People</label>
+                <div class="modal-form-hint" id="itemAssignmentModalHint">Select who should share this item.</div>
+              </div>
+              <div class="assignment-modal-actions">
+                <button type="button" class="modal-btn modal-btn-secondary assignment-modal-action-btn" onclick="billUI.selectAllPeopleForCurrentItem()">
+                  Select All
+                </button>
+                <button type="button" class="modal-btn modal-btn-secondary assignment-modal-action-btn" onclick="billUI.clearSelectedPeopleForCurrentItem()">
+                  Clear All
+                </button>
+              </div>
+              <div class="assignment-modal-list" id="itemAssignmentList"></div>
+              <div class="modal-error-message" id="itemAssignmentError"></div>
+            </div>
+            <div class="modal-footer">
+              <div class="modal-selection-summary" id="itemAssignmentSelectionSummary">0 selected</div>
+              <button class="modal-btn modal-btn-secondary" onclick="billUI.closeItemAssignmentModal()">
+                Cancel
+              </button>
+              <button class="modal-btn modal-btn-primary" onclick="billUI.saveItemAssignmentFromModal()" id="saveItemAssignmentBtn">
+                <span>Save Selection</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bill Import Preview Modal -->
+        <div id="billImportPreviewModal" class="modal-overlay" style="display: none;" aria-hidden="true">
+          <div class="modal-content modal-content-wide" data-modal="import-preview">
+            <div class="modal-header">
+              <h3 class="modal-title">Review Bill Import</h3>
+              <button class="modal-close" onclick="billUI.closeBillImportPreviewModal()" aria-label="Close modal">×</button>
+            </div>
+            <div class="modal-body">
+              <div class="bill-import-preview-summary" id="billImportPreviewSummary"></div>
+              <div class="assignment-modal-actions">
+                <button type="button" class="modal-btn modal-btn-secondary assignment-modal-action-btn" onclick="billUI.selectAllBillsForImportPreview()">
+                  Select All
+                </button>
+                <button type="button" class="modal-btn modal-btn-secondary assignment-modal-action-btn" onclick="billUI.clearBillImportPreviewSelection()">
+                  Clear All
+                </button>
+              </div>
+              <div class="bill-import-preview-list" id="billImportPreviewList"></div>
+            </div>
+            <div class="modal-footer">
+              <div class="modal-selection-summary" id="billImportPreviewModeLabel"></div>
+              <button class="modal-btn modal-btn-secondary" onclick="billUI.closeBillImportPreviewModal()">
+                Cancel
+              </button>
+              <button class="modal-btn modal-btn-primary" onclick="billUI.confirmBillImportPreview()" id="confirmBillImportPreviewBtn">
+                <span>Import Bills</span>
               </button>
             </div>
           </div>
@@ -374,6 +489,39 @@ export class BillCalculatorUI {
           gap: 10px;
           justify-content: flex-end;
           margin-bottom: 15px;
+        }
+
+        .bill-import-dropzone {
+          margin-bottom: 15px;
+          padding: 14px 16px;
+          border: 2px dashed var(--border-color);
+          border-radius: 12px;
+          background: var(--bg-secondary);
+          color: var(--text-secondary);
+          text-align: center;
+          cursor: pointer;
+          transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+          outline: none;
+        }
+
+        .bill-import-dropzone:hover,
+        .bill-import-dropzone:focus,
+        .bill-import-dropzone.is-drag-over {
+          border-color: var(--btn-primary);
+          background: var(--bg-tertiary);
+          transform: translateY(-1px);
+        }
+
+        .bill-import-dropzone-title {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--text-primary);
+          margin-bottom: 4px;
+        }
+
+        .bill-import-dropzone-text {
+          font-size: 13px;
+          line-height: 1.5;
         }
 
         .input-field {
@@ -912,6 +1060,23 @@ export class BillCalculatorUI {
           transform: translateY(-1px);
         }
 
+        .export-csv-btn-external {
+          background-color: #0f9d58;
+          color: white;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: normal;
+          transition: all 0.2s ease;
+        }
+
+        .export-csv-btn-external:hover {
+          background-color: #0b8043;
+          transform: translateY(-1px);
+        }
+
         /* Modal Styles - Enhanced Design */
         .modal-overlay {
           position: fixed;
@@ -965,6 +1130,10 @@ export class BillCalculatorUI {
           position: relative;
         }
 
+        .modal-content-wide {
+          max-width: 680px;
+        }
+
         [data-theme="dark"] .modal-content {
           box-shadow: 
             0 20px 25px -5px rgba(0, 0, 0, 0.4),
@@ -995,6 +1164,14 @@ export class BillCalculatorUI {
 
         .modal-content[data-modal="item"] .modal-title::before {
           content: "🧾";
+        }
+
+        .modal-content[data-modal="assignment"] .modal-title::before {
+          content: "👥";
+        }
+
+        .modal-content[data-modal="import-preview"] .modal-title::before {
+          content: "📥";
         }
 
         .modal-close {
@@ -1085,6 +1262,218 @@ export class BillCalculatorUI {
           color: var(--text-primary);
           font-size: 13px;
           line-height: 1.5;
+        }
+
+        .assignment-modal-list {
+          display: grid;
+          gap: 10px;
+          max-height: 320px;
+          overflow-y: auto;
+          margin-top: 8px;
+        }
+
+        .assignment-modal-actions {
+          display: flex;
+          gap: 10px;
+          margin-bottom: 12px;
+        }
+
+        .assignment-modal-action-btn {
+          min-width: 0;
+          padding: 10px 14px;
+          font-size: 12px;
+          letter-spacing: 0.04em;
+        }
+
+        .assignment-modal-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 14px;
+          border-radius: 10px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-light);
+          color: var(--text-primary);
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
+        .assignment-modal-item input {
+          width: 18px;
+          height: 18px;
+          margin: 0;
+          accent-color: var(--btn-success);
+          cursor: pointer;
+        }
+
+        .modal-selection-summary {
+          margin-right: auto;
+          color: var(--text-secondary);
+          font-size: 13px;
+          font-weight: 700;
+          align-self: center;
+        }
+
+        .bill-import-preview-summary {
+          display: grid;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
+        .bill-import-preview-banner {
+          padding: 14px 16px;
+          border-radius: 12px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-light);
+          color: var(--text-primary);
+          line-height: 1.5;
+        }
+
+        .bill-import-preview-banner strong {
+          display: block;
+          margin-bottom: 4px;
+        }
+
+        .bill-import-preview-banner.is-warning {
+          border-color: rgba(255, 193, 7, 0.45);
+          background: rgba(255, 243, 205, 0.45);
+        }
+
+        [data-theme="dark"] .bill-import-preview-banner.is-warning {
+          border-color: rgba(245, 158, 11, 0.4);
+          background: rgba(120, 73, 15, 0.28);
+        }
+
+        .bill-import-preview-stats {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .bill-import-preview-stat {
+          padding: 12px 14px;
+          border-radius: 12px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-light);
+          color: var(--text-primary);
+        }
+
+        .bill-import-preview-stat-label {
+          display: block;
+          font-size: 12px;
+          font-weight: 700;
+          color: var(--text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin-bottom: 6px;
+        }
+
+        .bill-import-preview-stat-value {
+          font-size: 18px;
+          font-weight: 800;
+        }
+
+        .bill-import-preview-list {
+          display: grid;
+          gap: 10px;
+          max-height: 340px;
+          overflow-y: auto;
+        }
+
+        .bill-import-preview-card {
+          padding: 14px 16px;
+          border-radius: 12px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-light);
+          display: grid;
+          gap: 10px;
+        }
+
+        .bill-import-preview-card.is-unselected {
+          opacity: 0.65;
+        }
+
+        .bill-import-preview-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+        }
+
+        .bill-import-preview-card-selector {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+        }
+
+        .bill-import-preview-card-checkbox {
+          width: 18px;
+          height: 18px;
+          margin-top: 2px;
+          accent-color: var(--btn-success);
+          cursor: pointer;
+          flex: 0 0 auto;
+        }
+
+        .bill-import-preview-card-details {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .bill-import-preview-card-title {
+          font-size: 15px;
+          font-weight: 800;
+          color: var(--text-primary);
+        }
+
+        .bill-import-preview-card-subtitle {
+          margin-top: 4px;
+          font-size: 13px;
+          color: var(--text-secondary);
+          line-height: 1.4;
+        }
+
+        .bill-import-preview-card-cleanup {
+          padding-top: 2px;
+          font-size: 12px;
+          line-height: 1.45;
+          color: var(--text-secondary);
+        }
+
+        .bill-import-preview-card-cleanup strong {
+          color: var(--text-primary);
+        }
+
+        .bill-import-preview-card-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          justify-content: flex-end;
+        }
+
+        .bill-import-preview-badge {
+          padding: 5px 8px;
+          border-radius: 999px;
+          background: var(--bg-primary);
+          border: 1px solid var(--border-light);
+          color: var(--text-secondary);
+          font-size: 11px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+
+        .bill-import-preview-badge.is-renamed {
+          color: #b7791f;
+        }
+
+        .bill-import-preview-badge.is-regenerated {
+          color: var(--btn-primary);
+        }
+
+        .bill-import-preview-badge.is-invalid {
+          color: #b7791f;
         }
 
         .modal-preview strong {
@@ -1239,6 +1628,32 @@ export class BillCalculatorUI {
           .modal-btn {
             width: 100%;
             justify-content: center;
+          }
+
+          .assignment-modal-actions {
+            flex-direction: column;
+          }
+
+          .assignment-modal-action-btn {
+            width: 100%;
+          }
+
+          .modal-selection-summary {
+            margin-right: 0;
+            width: 100%;
+            text-align: center;
+          }
+
+          .bill-import-preview-stats {
+            grid-template-columns: 1fr;
+          }
+
+          .bill-import-preview-card-header {
+            flex-direction: column;
+          }
+
+          .bill-import-preview-card-badges {
+            justify-content: flex-start;
           }
         }
 
@@ -1979,6 +2394,10 @@ export class BillCalculatorUI {
             width: 100%;
           }
 
+          .bill-import-dropzone {
+            padding: 12px;
+          }
+
           .mobile-summary-grid {
             display: grid;
           }
@@ -2036,6 +2455,16 @@ export class BillCalculatorUI {
             min-width: 100px;
             padding: 8px 6px;
           }
+
+          .item-header-actions {
+            flex-direction: column;
+            align-items: stretch;
+          }
+
+          .item-action-btn,
+          .item-delete-btn {
+            width: 100%;
+          }
         }
         @media (max-width: 500px) {
           .summary-header {
@@ -2071,10 +2500,12 @@ export class BillCalculatorUI {
 
     // Make this instance globally available
     (window as any).billUI = this;
+    this.attachBillTransferInputSupport();
     this.attachModalKeyboardSupport();
     this.attachModalPreviewSupport();
     this.attachSummaryTableResizeSupport();
     this.updateBillsList();
+    this.updateBillTransferActionState();
     this.updateDraftActionState();
     this.updateHistoryActionState();
     this.restoreDraftState();
@@ -2144,8 +2575,83 @@ export class BillCalculatorUI {
     clearDraftButton.disabled = !localStorage.getItem(this.draftStorageKey);
   }
 
+  private updateBillTransferActionState(): void {
+    const exportBillButton = document.getElementById('exportBillJsonBtn') as HTMLButtonElement | null;
+    const exportAllBillsButton = document.getElementById('exportAllBillsJsonBtn') as HTMLButtonElement | null;
+    const hasBills = this.calculator.getBills().length > 0;
+
+    if (exportBillButton) {
+      exportBillButton.disabled = !this.currentBillId || !this.calculator.getBill(this.currentBillId);
+    }
+
+    if (exportAllBillsButton) {
+      exportAllBillsButton.disabled = !hasBills;
+    }
+  }
+
+  private attachBillTransferInputSupport(): void {
+    const importInput = document.getElementById('billImportInput') as HTMLInputElement | null;
+    const dropZone = document.getElementById('billImportDropZone') as HTMLDivElement | null;
+
+    if (!importInput) {
+      return;
+    }
+
+    importInput.addEventListener('change', event => {
+      void this.handleImportedBillFile(event);
+    });
+
+    if (!dropZone) {
+      return;
+    }
+
+    dropZone.addEventListener('click', () => {
+      this.openBillImportPicker('merge');
+    });
+
+    dropZone.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        this.openBillImportPicker('merge');
+      }
+    });
+
+    const setDragState = (isDragOver: boolean) => {
+      dropZone.classList.toggle('is-drag-over', isDragOver);
+    };
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, event => {
+        event.preventDefault();
+        setDragState(true);
+      });
+    });
+
+    ['dragleave', 'dragend'].forEach(eventName => {
+      dropZone.addEventListener(eventName, event => {
+        event.preventDefault();
+        setDragState(false);
+      });
+    });
+
+    dropZone.addEventListener('drop', event => {
+      event.preventDefault();
+      setDragState(false);
+
+      const file = event.dataTransfer?.files?.[0];
+      if (!file) {
+        return;
+      }
+
+      const importMode = event.shiftKey ? 'replace' : 'merge';
+      void this.importBillsFromFile(file, importMode);
+    });
+  }
+
   private resetCurrentBillView(): void {
     this.currentBillId = null;
+    this.currentItemAssignmentItemId = null;
+    this.pendingBillImportPreview = null;
     this.showOnlyUnassignedItems = false;
     document.getElementById('currentBillSection')!.style.display = 'none';
     document.getElementById('currentBillTitle')!.textContent = 'Current Bill';
@@ -2153,6 +2659,9 @@ export class BillCalculatorUI {
     document.body.style.overflow = '';
     this.closePersonModal();
     this.closeItemModal();
+    this.closeItemAssignmentModal();
+    this.closeBillImportPreviewModal();
+    this.updateBillTransferActionState();
   }
 
   undoLastChange(): void {
@@ -2288,6 +2797,18 @@ export class BillCalculatorUI {
         return;
       }
 
+      if (isModifiedEnter && this.isItemAssignmentModalOpen()) {
+        e.preventDefault();
+        this.saveItemAssignmentFromModal();
+        return;
+      }
+
+      if (isModifiedEnter && this.isBillImportPreviewModalOpen()) {
+        e.preventDefault();
+        this.confirmBillImportPreview();
+        return;
+      }
+
       if ((e.key === 'Enter' || e.key === 'NumpadEnter') && isTextareaTarget) {
         return;
       }
@@ -2300,9 +2821,19 @@ export class BillCalculatorUI {
         this.addItemFromModal();
       }
 
+      if ((e.key === 'Enter' || e.key === 'NumpadEnter') && this.isItemAssignmentModalOpen()) {
+        this.saveItemAssignmentFromModal();
+      }
+
+      if ((e.key === 'Enter' || e.key === 'NumpadEnter') && this.isBillImportPreviewModalOpen()) {
+        this.confirmBillImportPreview();
+      }
+
       if (e.key === 'Escape') {
         this.closePersonModal();
         this.closeItemModal();
+        this.closeItemAssignmentModal();
+        this.closeBillImportPreviewModal();
       }
     });
   }
@@ -2902,6 +3433,217 @@ export class BillCalculatorUI {
     return document.getElementById('itemInputModal')?.style.display === 'flex';
   }
 
+  private isItemAssignmentModalOpen(): boolean {
+    return document.getElementById('itemAssignmentModal')?.style.display === 'flex';
+  }
+
+  private isBillImportPreviewModalOpen(): boolean {
+    return document.getElementById('billImportPreviewModal')?.style.display === 'flex';
+  }
+
+  private showBillImportPreviewModal(preview: PendingBillImportPreview): void {
+    this.pendingBillImportPreview = preview;
+
+    const modal = document.getElementById('billImportPreviewModal')!;
+    const confirmButton = document.getElementById('confirmBillImportPreviewBtn') as HTMLButtonElement;
+
+    this.renderBillImportPreviewModal();
+
+    confirmButton.querySelector('span')!.textContent = preview.importMode === 'replace' ? 'Replace Bills' : 'Import Bills';
+
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => {
+      confirmButton.focus();
+    }, 120);
+  }
+
+  closeBillImportPreviewModal(): void {
+    const modal = document.getElementById('billImportPreviewModal');
+    if (!modal) {
+      return;
+    }
+
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+    this.pendingBillImportPreview = null;
+    document.body.style.overflow = '';
+  }
+
+  toggleBillImportPreviewSelection(billId: string, selected: boolean): void {
+    if (!this.pendingBillImportPreview) {
+      return;
+    }
+
+    const entry = this.pendingBillImportPreview.entries.find(candidate => candidate.billId === billId);
+    if (!entry) {
+      return;
+    }
+
+    entry.selected = selected;
+    this.renderBillImportPreviewModal();
+  }
+
+  selectAllBillsForImportPreview(): void {
+    if (!this.pendingBillImportPreview) {
+      return;
+    }
+
+    this.pendingBillImportPreview.entries.forEach(entry => {
+      entry.selected = true;
+    });
+    this.renderBillImportPreviewModal();
+  }
+
+  clearBillImportPreviewSelection(): void {
+    if (!this.pendingBillImportPreview) {
+      return;
+    }
+
+    this.pendingBillImportPreview.entries.forEach(entry => {
+      entry.selected = false;
+    });
+    this.renderBillImportPreviewModal();
+  }
+
+  private renderBillImportPreviewModal(): void {
+    const preview = this.pendingBillImportPreview;
+    if (!preview) {
+      return;
+    }
+
+    const summary = document.getElementById('billImportPreviewSummary')!;
+    const list = document.getElementById('billImportPreviewList')!;
+    const modeLabel = document.getElementById('billImportPreviewModeLabel')!;
+    const confirmButton = document.getElementById('confirmBillImportPreviewBtn') as HTMLButtonElement;
+    const selectedCount = preview.entries.filter(entry => entry.selected).length;
+    const renamedCount = preview.entries.filter(entry => entry.renamed).length;
+    const regeneratedIdCount = preview.entries.filter(entry => entry.regeneratedId).length;
+    const invalidPersonsDropped = preview.entries.reduce((sum, entry) => sum + entry.invalidPersonsDropped, 0);
+    const invalidItemsDropped = preview.entries.reduce((sum, entry) => sum + entry.invalidItemsDropped, 0);
+    const invalidDividerReferencesRemoved = preview.entries.reduce((sum, entry) => sum + entry.invalidDividerReferencesRemoved, 0);
+
+    summary.innerHTML = `
+      <div class="bill-import-preview-banner ${preview.importMode === 'replace' ? 'is-warning' : ''}">
+        <strong>${preview.importMode === 'replace' ? 'Replace current bills' : 'Merge imported bills'}</strong>
+        ${preview.importMode === 'replace'
+          ? `Importing from ${preview.sourceName} will replace the ${preview.currentBillCount} bill(s) currently stored in this browser.`
+          : `Importing from ${preview.sourceName} will add selected bill(s) to the ${preview.currentBillCount} existing bill(s) in this browser.`}
+      </div>
+      ${preview.ignoredBillCount > 0 ? `
+        <div class="bill-import-preview-banner is-warning">
+          <strong>Ignored invalid bill records</strong>
+          ${preview.ignoredBillCount} bill record(s) in this file could not be imported at all and will be skipped.
+        </div>
+      ` : ''}
+      <div class="bill-import-preview-stats">
+        <div class="bill-import-preview-stat">
+          <span class="bill-import-preview-stat-label">Bills</span>
+          <span class="bill-import-preview-stat-value">${preview.preparedBills.length}</span>
+        </div>
+        <div class="bill-import-preview-stat">
+          <span class="bill-import-preview-stat-label">Selected</span>
+          <span class="bill-import-preview-stat-value">${selectedCount}</span>
+        </div>
+        <div class="bill-import-preview-stat">
+          <span class="bill-import-preview-stat-label">Renamed</span>
+          <span class="bill-import-preview-stat-value">${renamedCount}</span>
+        </div>
+        <div class="bill-import-preview-stat">
+          <span class="bill-import-preview-stat-label">New IDs</span>
+          <span class="bill-import-preview-stat-value">${regeneratedIdCount}</span>
+        </div>
+        <div class="bill-import-preview-stat">
+          <span class="bill-import-preview-stat-label">Invalid People</span>
+          <span class="bill-import-preview-stat-value">${invalidPersonsDropped}</span>
+        </div>
+        <div class="bill-import-preview-stat">
+          <span class="bill-import-preview-stat-label">Invalid Items</span>
+          <span class="bill-import-preview-stat-value">${invalidItemsDropped}</span>
+        </div>
+        <div class="bill-import-preview-stat">
+          <span class="bill-import-preview-stat-label">Bad References</span>
+          <span class="bill-import-preview-stat-value">${invalidDividerReferencesRemoved}</span>
+        </div>
+      </div>
+    `;
+
+    list.innerHTML = preview.entries.map(entry => `
+      <div class="bill-import-preview-card ${entry.selected ? '' : 'is-unselected'}">
+        <div class="bill-import-preview-card-header">
+          <div class="bill-import-preview-card-selector">
+            <input
+              class="bill-import-preview-card-checkbox"
+              type="checkbox"
+              ${entry.selected ? 'checked' : ''}
+              onchange="billUI.toggleBillImportPreviewSelection('${entry.billId}', this.checked)"
+              aria-label="Select ${entry.finalName} for import"
+            >
+            <div class="bill-import-preview-card-details">
+              <div class="bill-import-preview-card-title">${entry.finalName}</div>
+              <div class="bill-import-preview-card-subtitle">
+                ${entry.personsCount} person(s) · ${entry.itemsCount} item(s)
+                ${entry.renamed ? `<br>Original name: ${entry.originalName}` : ''}
+              </div>
+              ${entry.invalidPersonsDropped > 0 || entry.invalidItemsDropped > 0 || entry.invalidDividerReferencesRemoved > 0 ? `
+                <div class="bill-import-preview-card-cleanup">
+                  <strong>Cleanup:</strong>
+                  ${[
+                    entry.invalidPersonsDropped > 0 ? `${entry.invalidPersonsDropped} invalid person(s) dropped` : '',
+                    entry.invalidItemsDropped > 0 ? `${entry.invalidItemsDropped} invalid item(s) dropped` : '',
+                    entry.invalidDividerReferencesRemoved > 0 ? `${entry.invalidDividerReferencesRemoved} invalid divider reference(s) removed` : ''
+                  ].filter(Boolean).join(' · ')}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+          <div class="bill-import-preview-card-badges">
+            ${entry.renamed ? '<span class="bill-import-preview-badge is-renamed">Renamed</span>' : ''}
+            ${entry.regeneratedId ? '<span class="bill-import-preview-badge is-regenerated">New ID</span>' : ''}
+            ${entry.invalidPersonsDropped > 0 ? '<span class="bill-import-preview-badge is-invalid">People Cleaned</span>' : ''}
+            ${entry.invalidItemsDropped > 0 ? '<span class="bill-import-preview-badge is-invalid">Items Cleaned</span>' : ''}
+            ${entry.invalidDividerReferencesRemoved > 0 ? '<span class="bill-import-preview-badge is-invalid">Refs Cleaned</span>' : ''}
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    modeLabel.textContent = `${preview.importMode === 'replace' ? 'Replace mode' : 'Merge mode'} · ${selectedCount} selected`;
+    confirmButton.disabled = selectedCount === 0;
+  }
+
+  confirmBillImportPreview(): void {
+    const preview = this.pendingBillImportPreview;
+    if (!preview) {
+      return;
+    }
+
+    const selectedBills = preview.preparedBills.filter(bill =>
+      preview.entries.some(entry => entry.billId === bill.id && entry.selected)
+    );
+    if (selectedBills.length === 0) {
+      this.showToast('Select at least one bill to import');
+      return;
+    }
+
+    this.pendingBillImportPreview = null;
+    this.recordHistorySnapshot();
+
+    const preferredImportedBillId = preview.entries.some(entry => entry.billId === preview.preferredImportedBillId && entry.selected)
+      ? preview.preferredImportedBillId
+      : selectedBills[0]?.id || null;
+
+    if (preview.importMode === 'replace') {
+      this.closeBillImportPreviewModal();
+      this.applyImportedBillsAsReplacement(selectedBills, preferredImportedBillId, preview.sourceName);
+      return;
+    }
+
+    this.closeBillImportPreviewModal();
+    this.applyImportedBillsAsMerge(selectedBills, preview.sourceName, true);
+  }
+
   toggleTheme(): void {
     this.isDarkTheme = !this.isDarkTheme;
     localStorage.setItem('billCalculatorTheme', this.isDarkTheme ? 'dark' : 'light');
@@ -2997,6 +3739,78 @@ export class BillCalculatorUI {
     this.showToast(`Bill "${billName}" created`);
   }
 
+  exportCurrentBillJson(): void {
+    if (!this.currentBillId) {
+      this.showToast('Select a bill before exporting');
+      return;
+    }
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    if (!bill) {
+      this.showToast('Select a valid bill before exporting');
+      this.updateBillTransferActionState();
+      return;
+    }
+
+    this.downloadBillTransferFile(
+      this.createBillTransferPayload('single-bill', [bill], bill.id),
+      `${this.createDownloadSafeName(bill.name)}_bill.json`
+    );
+    this.showToast(`Exported ${bill.name}`);
+  }
+
+  exportAllBillsJson(): void {
+    const bills = this.calculator.exportBills();
+    if (bills.length === 0) {
+      this.showToast('Create a bill before exporting all bills');
+      this.updateBillTransferActionState();
+      return;
+    }
+
+    const currentBillId = this.currentBillId && this.calculator.getBill(this.currentBillId)
+      ? this.currentBillId
+      : bills[0]?.id || null;
+
+    this.downloadBillTransferFile(
+      this.createBillTransferPayload('bill-list', bills, currentBillId),
+      `all_bills_${new Date().toISOString().split('T')[0]}.json`
+    );
+    this.showToast(`Exported ${bills.length} ${bills.length === 1 ? 'bill' : 'bills'}`);
+  }
+
+  openBillImportPicker(importMode: BillImportMode = 'merge'): void {
+    const importInput = document.getElementById('billImportInput') as HTMLInputElement | null;
+    if (!importInput) {
+      alert('Import control is not available right now. Please refresh and try again.');
+      return;
+    }
+
+    importInput.dataset.importMode = importMode;
+    importInput.value = '';
+    importInput.click();
+  }
+
+  private async handleImportedBillFile(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement | null;
+    const file = input?.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const importMode = input?.dataset.importMode === 'replace' ? 'replace' : 'merge';
+      await this.importBillsFromFile(file, importMode);
+    } catch (error) {
+      console.error('Failed to import bill file:', error);
+      alert('Unable to import that file. Please choose a valid Bill Calculator JSON export.');
+    } finally {
+      if (input) {
+        delete input.dataset.importMode;
+        input.value = '';
+      }
+    }
+  }
+
   selectBill(billId: string): void {
     this.currentBillId = billId;
     this.showOnlyUnassignedItems = false;
@@ -3007,6 +3821,7 @@ export class BillCalculatorUI {
     document.getElementById('currentBillSection')!.style.display = 'block';
     
     this.updateBillsList();
+    this.updateBillTransferActionState();
     this.updateSummaryTable();
     this.saveDraftState();
   }
@@ -3185,6 +4000,134 @@ export class BillCalculatorUI {
     
     // Restore body scroll
     document.body.style.overflow = '';
+  }
+
+  showItemAssignmentModal(itemId: string): void {
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    const item = bill?.items.find(existingItem => existingItem.id === itemId);
+    if (!bill || !item) return;
+    if (bill.persons.length === 0) {
+      this.showToast('Add people before assigning this item');
+      return;
+    }
+
+    this.currentItemAssignmentItemId = itemId;
+
+    const modal = document.getElementById('itemAssignmentModal')!;
+    const label = document.getElementById('itemAssignmentModalLabel')!;
+    const hint = document.getElementById('itemAssignmentModalHint')!;
+    const list = document.getElementById('itemAssignmentList')!;
+    const error = document.getElementById('itemAssignmentError')!;
+    const selectionSummary = document.getElementById('itemAssignmentSelectionSummary')!;
+    const submitButton = document.getElementById('saveItemAssignmentBtn') as HTMLButtonElement;
+
+    label.textContent = `Choose who shares ${item.name}`;
+    hint.textContent = `Select the people who should split $${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`;
+    list.innerHTML = bill.persons.map(person => `
+      <label class="assignment-modal-item">
+        <input type="checkbox" value="${person.id}" ${item.dividers.includes(person.id) ? 'checked' : ''} onchange="billUI.updateItemAssignmentSelectionSummary()">
+        <span>${person.name}</span>
+      </label>
+    `).join('');
+    error.textContent = '';
+    error.style.display = 'none';
+    selectionSummary.textContent = '';
+    submitButton.disabled = false;
+    this.updateItemAssignmentSelectionSummary();
+
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+
+    setTimeout(() => {
+      const firstCheckbox = list.querySelector('input') as HTMLInputElement | null;
+      firstCheckbox?.focus();
+    }, 150);
+  }
+
+  closeItemAssignmentModal(): void {
+    const modal = document.getElementById('itemAssignmentModal');
+    const list = document.getElementById('itemAssignmentList');
+    const error = document.getElementById('itemAssignmentError');
+    const selectionSummary = document.getElementById('itemAssignmentSelectionSummary');
+    const submitButton = document.getElementById('saveItemAssignmentBtn') as HTMLButtonElement | null;
+
+    this.currentItemAssignmentItemId = null;
+    if (modal) {
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    if (list) {
+      list.innerHTML = '';
+    }
+    if (error) {
+      error.textContent = '';
+      error.style.display = 'none';
+    }
+    if (selectionSummary) {
+      selectionSummary.textContent = '0 selected';
+    }
+    if (submitButton) {
+      submitButton.disabled = false;
+    }
+    document.body.style.overflow = '';
+  }
+
+  updateItemAssignmentSelectionSummary(): void {
+    const list = document.getElementById('itemAssignmentList');
+    const selectionSummary = document.getElementById('itemAssignmentSelectionSummary');
+    if (!list || !selectionSummary) return;
+
+    const selectedCount = list.querySelectorAll('input[type="checkbox"]:checked').length;
+    selectionSummary.textContent = `${selectedCount} selected`;
+  }
+
+  selectAllPeopleForCurrentItem(): void {
+    const list = document.getElementById('itemAssignmentList');
+    if (!list) return;
+
+    list.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach(input => {
+      input.checked = true;
+    });
+    this.updateItemAssignmentSelectionSummary();
+  }
+
+  clearSelectedPeopleForCurrentItem(): void {
+    const list = document.getElementById('itemAssignmentList');
+    const error = document.getElementById('itemAssignmentError');
+    if (!list) return;
+
+    list.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach(input => {
+      input.checked = false;
+    });
+    if (error) {
+      error.textContent = '';
+      error.style.display = 'none';
+    }
+    this.updateItemAssignmentSelectionSummary();
+  }
+
+  saveItemAssignmentFromModal(): void {
+    if (!this.currentBillId || !this.currentItemAssignmentItemId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    const item = bill?.items.find(existingItem => existingItem.id === this.currentItemAssignmentItemId);
+    const list = document.getElementById('itemAssignmentList');
+    const error = document.getElementById('itemAssignmentError');
+    if (!bill || !item || !list || !error) return;
+
+    const selectedPersonIds = Array.from(list.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked')).map(input => input.value);
+    error.textContent = '';
+    error.style.display = 'none';
+
+    this.recordHistorySnapshot();
+    this.calculator.setItemDividers(this.currentBillId, this.currentItemAssignmentItemId, selectedPersonIds);
+    this.closeItemAssignmentModal();
+    this.updateSummaryTable();
+    this.saveDraftState();
+    this.showToast(selectedPersonIds.length > 0 ? `${item.name} updated for selected people` : `${item.name} assignments cleared`);
   }
 
   addItemFromModal(): void {
@@ -3554,6 +4497,7 @@ export class BillCalculatorUI {
   private updateBillsList(): void {
     const billsList = document.getElementById('billsList')!;
     const bills = this.calculator.getBills();
+    this.updateBillTransferActionState();
     
     if (bills.length === 0) {
       billsList.innerHTML = '<div class="empty-state">No bills created yet. Create your first bill above!</div>';
@@ -3584,6 +4528,237 @@ export class BillCalculatorUI {
         </div>
       `;
     }).join('');
+  }
+
+  private extractBillsFromTransferPayload(payload: unknown): unknown[] {
+    if (Array.isArray(payload)) {
+      return payload;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return [];
+    }
+
+    const record = payload as { bills?: unknown; bill?: unknown };
+    if (Array.isArray(record.bills)) {
+      return record.bills;
+    }
+
+    if (record.bill) {
+      return [record.bill];
+    }
+
+    return [];
+  }
+
+  private extractPreferredBillIdFromTransferPayload(payload: unknown): string | null {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const record = payload as { currentBillId?: unknown };
+    return typeof record.currentBillId === 'string' ? record.currentBillId : null;
+  }
+
+  private createBillTransferPayload(exportType: 'single-bill' | 'bill-list', bills: Bill[], currentBillId: string | null): BillTransferFile {
+    return {
+      version: 1,
+      source: 'bill-calculator',
+      exportType,
+      exportedAt: new Date().toISOString(),
+      currentBillId,
+      bills
+    };
+  }
+
+  private downloadBillTransferFile(payload: BillTransferFile, fileName: string): void {
+    const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  private async importBillsFromFile(file: File, importMode: BillImportMode): Promise<void> {
+    const rawContent = await file.text();
+    const parsedPayload = JSON.parse(rawContent) as unknown;
+    const extractedBills = this.extractBillsFromTransferPayload(parsedPayload);
+    const importAnalysis = this.calculator.analyzeBillImport(extractedBills);
+    const importedBills = importAnalysis.sanitizedBills;
+
+    if (importedBills.length === 0) {
+      alert('No valid bills were found in that file. Please use a Bill Calculator JSON export.');
+      return;
+    }
+
+    const preview = this.buildBillImportPreview(
+      importAnalysis,
+      importMode,
+      file.name,
+      this.extractPreferredBillIdFromTransferPayload(parsedPayload)
+    );
+
+    this.showBillImportPreviewModal(preview);
+  }
+
+  private buildBillImportPreview(
+    importAnalysis: ReturnType<BillCalculator['analyzeBillImport']>,
+    importMode: BillImportMode,
+    sourceName: string,
+    preferredImportedBillId: string | null
+  ): PendingBillImportPreview {
+    const importedBills = importAnalysis.sanitizedBills;
+    const currentBillCount = this.calculator.getBills().length;
+
+    if (importMode === 'replace') {
+      return {
+        sourceName,
+        importMode,
+        preferredImportedBillId,
+        preparedBills: importedBills,
+        currentBillCount,
+        ignoredBillCount: importAnalysis.ignoredBillCount,
+        entries: importAnalysis.reports.map(report => ({
+          billId: report.bill.id,
+          originalName: report.bill.name,
+          finalName: report.bill.name,
+          personsCount: report.bill.persons.length,
+          itemsCount: report.bill.items.length,
+          renamed: false,
+          regeneratedId: false,
+          invalidPersonsDropped: report.invalidPersonsDropped,
+          invalidItemsDropped: report.invalidItemsDropped,
+          invalidDividerReferencesRemoved: report.invalidDividerReferencesRemoved,
+          selected: true
+        }))
+      };
+    }
+
+    const existingBills = this.calculator.exportBills();
+    const existingBillIds = new Set(existingBills.map(bill => bill.id));
+    const existingBillNames = new Set(existingBills.map(bill => bill.name.toLowerCase()));
+    const entries: BillImportPreviewEntry[] = [];
+    const preparedBills = importAnalysis.reports.map(report => {
+      const preparedBill = this.prepareImportedBillForMerge(report.bill, existingBillIds, existingBillNames);
+      entries.push({
+        billId: preparedBill.id,
+        originalName: report.bill.name,
+        finalName: preparedBill.name,
+        personsCount: preparedBill.persons.length,
+        itemsCount: preparedBill.items.length,
+        renamed: preparedBill.name !== report.bill.name,
+        regeneratedId: preparedBill.id !== report.bill.id,
+        invalidPersonsDropped: report.invalidPersonsDropped,
+        invalidItemsDropped: report.invalidItemsDropped,
+        invalidDividerReferencesRemoved: report.invalidDividerReferencesRemoved,
+        selected: true
+      });
+      return preparedBill;
+    });
+
+    return {
+      sourceName,
+      importMode,
+      preferredImportedBillId,
+      preparedBills,
+      entries,
+      currentBillCount,
+      ignoredBillCount: importAnalysis.ignoredBillCount
+    };
+  }
+
+  private applyImportedBillsAsReplacement(importedBills: Bill[], preferredBillId: string | null, sourceName: string): void {
+    this.calculator.loadBills(importedBills);
+    this.updateBillsList();
+
+    const selectedBillId = preferredBillId && this.calculator.getBill(preferredBillId)
+      ? preferredBillId
+      : importedBills[0]?.id || null;
+
+    if (selectedBillId) {
+      this.selectBill(selectedBillId);
+    } else {
+      this.resetCurrentBillView();
+      this.updateBillsList();
+      this.saveDraftState();
+    }
+
+    this.showToast(`Replaced current bills with ${importedBills.length} ${importedBills.length === 1 ? 'bill' : 'bills'} from ${sourceName}`);
+  }
+
+  private applyImportedBillsAsMerge(importedBills: Bill[], sourceName: string, billsArePrepared = false): void {
+    const existingBills = this.calculator.exportBills();
+    const preparedImportedBills = billsArePrepared
+      ? importedBills
+      : (() => {
+          const existingBillIds = new Set(existingBills.map(existingBill => existingBill.id));
+          const existingBillNames = new Set(existingBills.map(existingBill => existingBill.name.toLowerCase()));
+          return importedBills.map(bill => this.prepareImportedBillForMerge(bill, existingBillIds, existingBillNames));
+        })();
+
+    this.calculator.loadBills([...existingBills, ...preparedImportedBills]);
+    this.updateBillsList();
+
+    if (preparedImportedBills[0]) {
+      this.selectBill(preparedImportedBills[0].id);
+    } else {
+      this.saveDraftState();
+    }
+
+    this.showToast(`Imported ${preparedImportedBills.length} ${preparedImportedBills.length === 1 ? 'bill' : 'bills'} from ${sourceName}`);
+  }
+
+  private prepareImportedBillForMerge(bill: Bill, existingBillIds: Set<string>, existingBillNames: Set<string>): Bill {
+    let nextBillId = bill.id;
+    while (existingBillIds.has(nextBillId)) {
+      nextBillId = this.generateTransferId();
+    }
+    existingBillIds.add(nextBillId);
+
+    const nextBillName = this.getUniqueImportedBillName(bill.name, existingBillNames);
+    existingBillNames.add(nextBillName.toLowerCase());
+
+    return {
+      ...bill,
+      id: nextBillId,
+      name: nextBillName
+    };
+  }
+
+  private getUniqueImportedBillName(baseName: string, existingBillNames: Set<string>): string {
+    const normalizedBaseName = baseName.trim() || 'Imported Bill';
+    if (!existingBillNames.has(normalizedBaseName.toLowerCase())) {
+      return normalizedBaseName;
+    }
+
+    let attempt = `${normalizedBaseName} (Imported)`;
+    let suffix = 2;
+    while (existingBillNames.has(attempt.toLowerCase())) {
+      attempt = `${normalizedBaseName} (Imported ${suffix})`;
+      suffix += 1;
+    }
+
+    return attempt;
+  }
+
+  private createDownloadSafeName(value: string): string {
+    return value
+      .trim()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-zA-Z0-9_-]/g, '')
+      || 'bill';
+  }
+
+  private generateTransferId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+
+    return Math.random().toString(36).slice(2, 11);
   }
 
   toggleUnassignedItemsFilter(): void {
@@ -3701,6 +4876,7 @@ export class BillCalculatorUI {
     const addItemBtn = document.getElementById('addItemBtn')!;
     const exportBtn = document.getElementById('exportBtn')!;
     const exportPdfBtn = document.getElementById('exportPdfBtn')!;
+    const exportCsvBtn = document.getElementById('exportCsvBtn')!;
     
     if (!bill) {
       summaryTable.innerHTML = '<div class="no-data-message">Bill not found.</div>';
@@ -3710,6 +4886,7 @@ export class BillCalculatorUI {
       addItemBtn.style.display = 'none';
       exportBtn.style.display = 'none';
       exportPdfBtn.style.display = 'none';
+      exportCsvBtn.style.display = 'none';
       return;
     }
 
@@ -3755,6 +4932,7 @@ export class BillCalculatorUI {
       `;
       exportBtn.style.display = 'none';
       exportPdfBtn.style.display = 'none';
+      exportCsvBtn.style.display = 'none';
       return;
     }
 
@@ -3770,12 +4948,14 @@ export class BillCalculatorUI {
       `;
       exportBtn.style.display = 'none';
       exportPdfBtn.style.display = 'none';
+      exportCsvBtn.style.display = 'none';
       return;
     }
 
     // Show export button when table has data
     exportBtn.style.display = 'inline-block';
     exportPdfBtn.style.display = 'inline-block';
+    exportCsvBtn.style.display = 'inline-block';
 
     const { matrix, itemTotals, personTotals, grandTotal } = this.calculateSummaryMatrix(bill);
     const chargesMarkup = this.renderChargeControls(bill);
@@ -3807,6 +4987,9 @@ export class BillCalculatorUI {
                         ${item.dividers.length === 0 ? '<div class="summary-table-header-badge">Unassigned</div>' : ''}
                       </div>
                       <div class="item-header-actions">
+                        <button class="item-action-btn item-action-clear" onclick="billUI.showItemAssignmentModal('${item.id}')" title="Select people for ${item.name}">
+                          Select
+                        </button>
                         <button class="item-action-btn item-action-assign" onclick="billUI.assignItemToAllPeople('${item.id}')" title="Assign ${item.name} to everyone" ${allAssigned ? 'disabled' : ''}>
                           All
                         </button>
@@ -4171,6 +5354,101 @@ export class BillCalculatorUI {
     );
   }
 
+  private getExportFileBaseName(bill: Bill): string {
+    return `${bill.name.replace(/[^a-zA-Z0-9]/g, '_')}_summary_${new Date().toISOString().split('T')[0]}`;
+  }
+
+  private escapeCsvCell(value: string | number): string {
+    const text = String(value);
+    if (/[",\n\r]/.test(text)) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+
+    return text;
+  }
+
+  private formatCsvAmount(amount: number): string {
+    return amount.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      useGrouping: false
+    });
+  }
+
+  private buildCsvExportContent(bill: Bill): string {
+    const {
+      matrix,
+      itemTotals,
+      personTotals,
+      subtotal,
+      subtotalAfterService,
+      taxAmount,
+      serviceAmount,
+      tipAmount,
+      totalCharges,
+      grandTotal
+    } = this.calculateSummaryMatrix(bill);
+    const { unassignedItemsTotal } = this.calculateBillChargeTotals(bill);
+
+    const currentDate = new Date().toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const rows: Array<Array<string | number>> = [
+      ['Bill Name', bill.name],
+      ['Generated On', currentDate],
+      [],
+      ['Summary Metric', 'Amount'],
+      ['Active Subtotal', this.formatCsvAmount(subtotal)],
+      ['Unassigned Items', this.formatCsvAmount(unassignedItemsTotal)],
+      ['Service', this.formatCsvAmount(serviceAmount)],
+      ['Subtotal After Service', this.formatCsvAmount(subtotalAfterService)],
+      ['Tax', this.formatCsvAmount(taxAmount)],
+      ['Tip', this.formatCsvAmount(tipAmount)],
+      ['Total Charges', this.formatCsvAmount(totalCharges)],
+      ['Final Total', this.formatCsvAmount(grandTotal)],
+      [],
+      [
+        'Person',
+        ...bill.items.map(item => `${item.name} ($${this.formatCsvAmount(item.price)}, ${item.dividers.length} ${item.dividers.length === 1 ? 'person' : 'people'})`),
+        'Total'
+      ],
+      ...bill.persons.map(person => [
+        person.name,
+        ...bill.items.map(item => {
+          const amount = matrix[person.id][item.id];
+          return amount > 0 ? this.formatCsvAmount(amount) : '';
+        }),
+        this.formatCsvAmount(personTotals[person.id])
+      ]),
+      ['Total', ...bill.items.map(item => this.formatCsvAmount(itemTotals[item.id])), this.formatCsvAmount(grandTotal)],
+      [],
+      ['Item', 'Price', 'Assigned People', 'Assigned Count', 'Status'],
+      ...bill.items.map(item => {
+        const assignedPeople = bill.persons
+          .filter(person => item.dividers.includes(person.id))
+          .map(person => person.name)
+          .join('; ');
+
+        return [
+          item.name,
+          this.formatCsvAmount(item.price),
+          assignedPeople,
+          item.dividers.length,
+          item.dividers.length === 0 ? 'Unassigned' : 'Assigned'
+        ];
+      })
+    ];
+
+    return rows
+      .map(row => row.map(cell => this.escapeCsvCell(cell)).join(','))
+      .join('\r\n');
+  }
+
   async exportTableToImage(): Promise<void> {
     if (!this.confirmExportWithUnassignedItems()) return;
 
@@ -4187,7 +5465,7 @@ export class BillCalculatorUI {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${bill.name.replace(/[^a-zA-Z0-9]/g, '_')}_summary_${new Date().toISOString().split('T')[0]}.png`;
+      link.download = `${this.getExportFileBaseName(bill)}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -4212,7 +5490,29 @@ export class BillCalculatorUI {
 
     const imageData = canvas.toDataURL('image/png');
     pdf.addImage(imageData, 'PNG', 0, 0, canvas.width, canvas.height, undefined, 'FAST');
-    pdf.save(`${bill.name.replace(/[^a-zA-Z0-9]/g, '_')}_summary_${new Date().toISOString().split('T')[0]}.pdf`);
+    pdf.save(`${this.getExportFileBaseName(bill)}.pdf`);
+  }
+
+  async exportTableToCsv(): Promise<void> {
+    if (!this.confirmExportWithUnassignedItems()) return;
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    if (!bill || bill.items.length === 0 || bill.persons.length === 0) {
+      alert('No data to export. Please add items and people first.');
+      return;
+    }
+
+    const csvContent = this.buildCsvExportContent(bill);
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${this.getExportFileBaseName(bill)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
 }

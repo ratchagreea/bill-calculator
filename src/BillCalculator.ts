@@ -1,32 +1,67 @@
 import { Bill, Person, Item, PersonSummary, BillCharges } from './types';
 
+export interface BillImportSanitizationReport {
+  bill: Bill;
+  invalidPersonsDropped: number;
+  invalidItemsDropped: number;
+  invalidDividerReferencesRemoved: number;
+}
+
+export interface BillImportAnalysis {
+  sanitizedBills: Bill[];
+  reports: BillImportSanitizationReport[];
+  ignoredBillCount: number;
+  totalInvalidPersonsDropped: number;
+  totalInvalidItemsDropped: number;
+  totalInvalidDividerReferencesRemoved: number;
+}
+
 export class BillCalculator {
   private bills: Bill[] = [];
 
   loadBills(bills: Bill[]): void {
-    this.bills = bills.map(bill => ({
-      id: bill.id,
-      name: bill.name,
-      persons: bill.persons.map(person => ({
-        id: person.id,
-        name: person.name
-      })),
-      items: bill.items.map(item => ({
-        id: item.id,
-        name: item.name,
-        price: item.price,
-        dividers: [...item.dividers]
-      })),
-      settlementRecipientId: bill.settlementRecipientId ?? null,
-      charges: {
-        taxEnabled: typeof bill.charges?.taxEnabled === 'boolean' ? bill.charges.taxEnabled : (Number.isFinite(bill.charges?.taxRate) ? bill.charges.taxRate > 0 : false),
-        taxRate: this.normalizeChargeRate(bill.charges?.taxRate),
-        serviceEnabled: typeof bill.charges?.serviceEnabled === 'boolean' ? bill.charges.serviceEnabled : (Number.isFinite(bill.charges?.serviceRate) ? bill.charges.serviceRate > 0 : false),
-        serviceRate: this.normalizeChargeRate(bill.charges?.serviceRate),
-        tipEnabled: typeof bill.charges?.tipEnabled === 'boolean' ? bill.charges.tipEnabled : (Number.isFinite(bill.charges?.tipRate) ? bill.charges.tipRate > 0 : false),
-        tipRate: this.normalizeChargeRate(bill.charges?.tipRate)
+    this.bills = this.sanitizeBills(bills);
+  }
+
+  sanitizeBills(rawBills: unknown): Bill[] {
+    return this.analyzeBillImport(rawBills).sanitizedBills;
+  }
+
+  analyzeBillImport(rawBills: unknown): BillImportAnalysis {
+    if (!Array.isArray(rawBills)) {
+      return {
+        sanitizedBills: [],
+        reports: [],
+        ignoredBillCount: 0,
+        totalInvalidPersonsDropped: 0,
+        totalInvalidItemsDropped: 0,
+        totalInvalidDividerReferencesRemoved: 0
+      };
+    }
+
+    const usedBillIds = new Set<string>();
+    const sanitizedBills: Bill[] = [];
+    const reports: BillImportSanitizationReport[] = [];
+    let ignoredBillCount = 0;
+
+    rawBills.forEach(rawBill => {
+      const sanitizedBill = this.sanitizeBillWithReport(rawBill, usedBillIds);
+      if (sanitizedBill) {
+        sanitizedBills.push(sanitizedBill.bill);
+        reports.push(sanitizedBill.report);
+      } else {
+        ignoredBillCount += 1;
       }
-    }));
+    });
+
+    return {
+      sanitizedBills,
+      reports,
+      ignoredBillCount,
+      totalInvalidPersonsDropped: reports.reduce((sum, report) => sum + report.invalidPersonsDropped, 0),
+      totalInvalidItemsDropped: reports.reduce((sum, report) => sum + report.invalidItemsDropped, 0),
+      totalInvalidDividerReferencesRemoved: reports.reduce((sum, report) => sum + report.invalidDividerReferencesRemoved, 0)
+    };
   }
 
   exportBills(): Bill[] {
@@ -324,6 +359,175 @@ export class BillCalculator {
 
   private generateId(): string {
     return Math.random().toString(36).substr(2, 9);
+  }
+
+  private sanitizeBillWithReport(
+    rawBill: unknown,
+    usedBillIds: Set<string>
+  ): { bill: Bill; report: BillImportSanitizationReport } | null {
+    if (!rawBill || typeof rawBill !== 'object') {
+      return null;
+    }
+
+    const billRecord = rawBill as Partial<Bill>;
+    const requestedBillId = typeof billRecord.id === 'string' && billRecord.id.trim()
+      ? billRecord.id.trim()
+      : this.generateId();
+    let billId = requestedBillId;
+    while (usedBillIds.has(billId)) {
+      billId = this.generateId();
+    }
+    usedBillIds.add(billId);
+
+    const name = this.normalizeName(typeof billRecord.name === 'string' ? billRecord.name : '');
+    const normalizedName = name || 'Imported Bill';
+
+    const personIdSet = new Set<string>();
+    let invalidPersonsDropped = 0;
+    const persons = Array.isArray(billRecord.persons)
+      ? billRecord.persons.reduce<Person[]>((result, rawPerson) => {
+          const person = this.sanitizePerson(rawPerson, personIdSet);
+          if (person) {
+            result.push(person);
+          } else {
+            invalidPersonsDropped += 1;
+          }
+          return result;
+        }, [])
+      : [];
+
+    const validPersonIds = new Set(persons.map(person => person.id));
+    const itemIdSet = new Set<string>();
+    let invalidItemsDropped = 0;
+    let invalidDividerReferencesRemoved = 0;
+    const items = Array.isArray(billRecord.items)
+      ? billRecord.items.reduce<Item[]>((result, rawItem) => {
+          const item = this.sanitizeItem(rawItem, itemIdSet, validPersonIds);
+          if (item) {
+            result.push(item.item);
+            invalidDividerReferencesRemoved += item.invalidDividerReferencesRemoved;
+          } else {
+            invalidItemsDropped += 1;
+          }
+          return result;
+        }, [])
+      : [];
+
+    const settlementRecipientId = typeof billRecord.settlementRecipientId === 'string'
+      && validPersonIds.has(billRecord.settlementRecipientId)
+      ? billRecord.settlementRecipientId
+      : null;
+
+    const bill = {
+      id: billId,
+      name: normalizedName,
+      persons,
+      items,
+      settlementRecipientId,
+      charges: this.sanitizeCharges(billRecord.charges)
+    };
+
+    return {
+      bill,
+      report: {
+        bill,
+        invalidPersonsDropped,
+        invalidItemsDropped,
+        invalidDividerReferencesRemoved
+      }
+    };
+  }
+
+  private sanitizePerson(rawPerson: unknown, usedPersonIds: Set<string>): Person | null {
+    if (!rawPerson || typeof rawPerson !== 'object') {
+      return null;
+    }
+
+    const personRecord = rawPerson as Partial<Person>;
+    const name = this.normalizeName(typeof personRecord.name === 'string' ? personRecord.name : '');
+    if (!name) {
+      return null;
+    }
+
+    const requestedPersonId = typeof personRecord.id === 'string' && personRecord.id.trim()
+      ? personRecord.id.trim()
+      : this.generateId();
+    let personId = requestedPersonId;
+    while (usedPersonIds.has(personId)) {
+      personId = this.generateId();
+    }
+    usedPersonIds.add(personId);
+
+    return {
+      id: personId,
+      name
+    };
+  }
+
+  private sanitizeItem(
+    rawItem: unknown,
+    usedItemIds: Set<string>,
+    validPersonIds: Set<string>
+  ): { item: Item; invalidDividerReferencesRemoved: number } | null {
+    if (!rawItem || typeof rawItem !== 'object') {
+      return null;
+    }
+
+    const itemRecord = rawItem as Partial<Item>;
+    const name = this.normalizeName(typeof itemRecord.name === 'string' ? itemRecord.name : '');
+    const price = Number(itemRecord.price);
+    if (!name || !Number.isFinite(price) || price <= 0) {
+      return null;
+    }
+
+    const requestedItemId = typeof itemRecord.id === 'string' && itemRecord.id.trim()
+      ? itemRecord.id.trim()
+      : this.generateId();
+    let itemId = requestedItemId;
+    while (usedItemIds.has(itemId)) {
+      itemId = this.generateId();
+    }
+    usedItemIds.add(itemId);
+
+    const validDividerIds = new Set<string>();
+    let invalidDividerReferencesRemoved = 0;
+    if (Array.isArray(itemRecord.dividers)) {
+      itemRecord.dividers.forEach(personId => {
+        if (typeof personId === 'string' && validPersonIds.has(personId)) {
+          validDividerIds.add(personId);
+          return;
+        }
+
+        invalidDividerReferencesRemoved += 1;
+      });
+    }
+
+    const dividers = Array.from(validDividerIds);
+
+    return {
+      item: {
+        id: itemId,
+        name,
+        price,
+        dividers
+      },
+      invalidDividerReferencesRemoved
+    };
+  }
+
+  private sanitizeCharges(rawCharges: unknown): BillCharges {
+    const charges = rawCharges && typeof rawCharges === 'object'
+      ? rawCharges as Partial<BillCharges>
+      : undefined;
+
+    return {
+      taxEnabled: typeof charges?.taxEnabled === 'boolean' ? charges.taxEnabled : (Number.isFinite(charges?.taxRate) ? (charges?.taxRate as number) > 0 : false),
+      taxRate: this.normalizeChargeRate(charges?.taxRate),
+      serviceEnabled: typeof charges?.serviceEnabled === 'boolean' ? charges.serviceEnabled : (Number.isFinite(charges?.serviceRate) ? (charges?.serviceRate as number) > 0 : false),
+      serviceRate: this.normalizeChargeRate(charges?.serviceRate),
+      tipEnabled: typeof charges?.tipEnabled === 'boolean' ? charges.tipEnabled : (Number.isFinite(charges?.tipRate) ? (charges?.tipRate as number) > 0 : false),
+      tipRate: this.normalizeChargeRate(charges?.tipRate)
+    };
   }
 
   private normalizeName(value: string): string {
