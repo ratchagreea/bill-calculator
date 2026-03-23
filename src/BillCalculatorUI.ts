@@ -171,7 +171,7 @@ export class BillCalculatorUI {
                   placeholder="Enter bill name"
                   maxlength="100"
                 />
-                <div class="modal-form-hint">Give this bill a clear name so it is easy to find later.</div>
+                <div class="modal-form-hint" id="billNameHint">Give this bill a clear name so it is easy to find later.</div>
                 <div class="modal-error-message" id="billNameError"></div>
               </div>
             </div>
@@ -180,7 +180,7 @@ export class BillCalculatorUI {
                 Cancel
               </button>
               <button class="modal-btn modal-btn-primary" onclick="billUI.saveBillFromModal()" id="saveBillSubmitBtn">
-                <span>Save Changes</span>
+                <span id="billSubmitButtonLabel">Save Changes</span>
               </button>
             </div>
           </div>
@@ -4078,7 +4078,7 @@ export class BillCalculatorUI {
   createNewBill(): void {
     const billNameInput = document.getElementById('billName') as HTMLInputElement;
     const billName = billNameInput.value.trim();
-    
+
     if (!billName) {
       alert('Please enter a bill name');
       return;
@@ -4103,13 +4103,20 @@ export class BillCalculatorUI {
     if (!bill) return;
 
     const modal = document.getElementById('billEditModal')!;
+    const title = document.getElementById('billModalTitle');
+    const hint = document.getElementById('billNameHint');
     const input = document.getElementById('modalBillName') as HTMLInputElement;
     const submitButton = document.getElementById('saveBillSubmitBtn') as HTMLButtonElement;
+    const submitButtonLabel = document.getElementById('billSubmitButtonLabel');
 
     this.editingBillId = billId;
     this.clearBillModalError();
+    if (title) title.textContent = 'Edit Bill';
+    if (hint) hint.textContent = 'Give this bill a clear name so it is easy to find later.';
+    if (submitButtonLabel) submitButtonLabel.textContent = 'Save Changes';
     input.value = bill.name;
     submitButton.disabled = false;
+    submitButton.classList.remove('loading');
     modal.style.display = 'flex';
     modal.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
@@ -4122,17 +4129,29 @@ export class BillCalculatorUI {
 
   closeBillModal(): void {
     const modal = document.getElementById('billEditModal');
+    const title = document.getElementById('billModalTitle');
+    const hint = document.getElementById('billNameHint');
     const input = document.getElementById('modalBillName') as HTMLInputElement | null;
     const submitButton = document.getElementById('saveBillSubmitBtn') as HTMLButtonElement | null;
+    const submitButtonLabel = document.getElementById('billSubmitButtonLabel');
 
     this.editingBillId = null;
     if (modal) {
       modal.style.display = 'none';
       modal.setAttribute('aria-hidden', 'true');
     }
+    if (title) {
+      title.textContent = 'Edit Bill';
+    }
+    if (hint) {
+      hint.textContent = 'Give this bill a clear name so it is easy to find later.';
+    }
     if (input) {
       input.value = '';
       input.classList.remove('error');
+    }
+    if (submitButtonLabel) {
+      submitButtonLabel.textContent = 'Save Changes';
     }
     this.clearBillModalError();
     if (submitButton) {
