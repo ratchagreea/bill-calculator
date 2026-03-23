@@ -45,7 +45,10 @@ interface PendingBillImportPreview {
 export class BillCalculatorUI {
   private calculator: BillCalculator;
   private currentBillId: string | null = null;
+  private editingBillId: string | null = null;
+  private editingPersonId: string | null = null;
   private currentItemAssignmentItemId: string | null = null;
+  private editingItemId: string | null = null;
   private showOnlyUnassignedItems = false;
   private isDarkTheme: boolean;
   private toastTimeoutId: number | null = null;
@@ -107,7 +110,10 @@ export class BillCalculatorUI {
           <div class="section">
             <div class="bill-header">
               <h2 id="currentBillTitle">Current Bill</h2>
-              <button class="delete-bill-btn" onclick="billUI.deleteCurrentBill()">Delete Bill</button>
+              <div class="bill-header-actions">
+                <button class="edit-bill-btn" onclick="billUI.editCurrentBill()">Edit Bill</button>
+                <button class="delete-bill-btn" onclick="billUI.deleteCurrentBill()">Delete Bill</button>
+              </div>
             </div>
 
             <!-- Interactive Summary Table -->
@@ -148,11 +154,43 @@ export class BillCalculatorUI {
         </div>
       </div>
 
+        <!-- Bill Edit Modal -->
+        <div id="billEditModal" class="modal-overlay" style="display: none;" aria-hidden="true">
+          <div class="modal-content" data-modal="bill">
+            <div class="modal-header">
+              <h3 class="modal-title" id="billModalTitle">Edit Bill</h3>
+              <button class="modal-close" onclick="billUI.closeBillModal()" aria-label="Close modal">×</button>
+            </div>
+            <div class="modal-body">
+              <div class="modal-form-group">
+                <label class="modal-label" for="modalBillName">Bill Name</label>
+                <input 
+                  type="text"
+                  id="modalBillName"
+                  class="modal-input"
+                  placeholder="Enter bill name"
+                  maxlength="100"
+                />
+                <div class="modal-form-hint">Give this bill a clear name so it is easy to find later.</div>
+                <div class="modal-error-message" id="billNameError"></div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="modal-btn modal-btn-secondary" onclick="billUI.closeBillModal()">
+                Cancel
+              </button>
+              <button class="modal-btn modal-btn-primary" onclick="billUI.saveBillFromModal()" id="saveBillSubmitBtn">
+                <span>Save Changes</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Person Input Modal -->
         <div id="personInputModal" class="modal-overlay" style="display: none;" aria-hidden="true">
           <div class="modal-content" data-modal="person">
             <div class="modal-header">
-              <h3 class="modal-title">Add Person</h3>
+              <h3 class="modal-title" id="personModalTitle">Add Person</h3>
               <button class="modal-close" onclick="billUI.closePersonModal()" aria-label="Close modal">×</button>
             </div>
             <div class="modal-body">
@@ -166,18 +204,18 @@ export class BillCalculatorUI {
                   maxlength="50"
                   autocomplete="name"
                 />
-                <div class="modal-form-hint">Who will be splitting the bill?</div>
+                <div class="modal-form-hint" id="personNameHint">Who will be splitting the bill?</div>
                 <div class="modal-error-message" id="personNameError"></div>
               </div>
-              <div class="modal-form-group">
+              <div class="modal-form-group" id="personBulkGroup">
                 <label class="modal-label" for="modalPersonNames">Add Multiple People</label>
                 <textarea
                   id="modalPersonNames"
                   class="modal-input modal-textarea"
                   placeholder="One name per line or separate with commas&#10;Alice&#10;Bob&#10;Charlie"
                 ></textarea>
-                <div class="modal-form-hint">Optional. Paste several names at once.</div>
-                <div class="modal-shortcut-hint">Press Cmd+Enter to submit on Mac, or Ctrl+Enter on other keyboards.</div>
+                <div class="modal-form-hint" id="personBulkHint">Optional. Paste several names at once.</div>
+                <div class="modal-shortcut-hint" id="personShortcutHint">Press Cmd+Enter to submit on Mac, or Ctrl+Enter on other keyboards.</div>
                 <div class="modal-error-message" id="personBulkError"></div>
                 <div class="modal-preview" id="personPreview" style="display: none;"></div>
               </div>
@@ -187,7 +225,7 @@ export class BillCalculatorUI {
                 Cancel
               </button>
               <button class="modal-btn modal-btn-primary" onclick="billUI.addPersonFromModal()" id="addPersonSubmitBtn">
-                <span>Add Person</span>
+                <span id="personSubmitButtonLabel">Add Person</span>
               </button>
             </div>
           </div>
@@ -197,7 +235,7 @@ export class BillCalculatorUI {
         <div id="itemInputModal" class="modal-overlay" style="display: none;" aria-hidden="true">
           <div class="modal-content" data-modal="item">
             <div class="modal-header">
-              <h3 class="modal-title">Add Item</h3>
+              <h3 class="modal-title" id="itemModalTitle">Add Item</h3>
               <button class="modal-close" onclick="billUI.closeItemModal()" aria-label="Close modal">×</button>
             </div>
             <div class="modal-body">
@@ -210,7 +248,7 @@ export class BillCalculatorUI {
                   placeholder="e.g., Pizza, Drinks, Appetizer"
                   maxlength="100"
                 />
-                <div class="modal-form-hint">What item are you adding to the bill?</div>
+                <div class="modal-form-hint" id="itemNameHint">What item are you adding to the bill?</div>
                 <div class="modal-error-message" id="itemNameError"></div>
               </div>
               <div class="modal-form-group">
@@ -224,18 +262,18 @@ export class BillCalculatorUI {
                   min="0"
                   max="1000000"
                 />
-                <div class="modal-form-hint">Enter the total cost of this item</div>
+                <div class="modal-form-hint" id="itemPriceHint">Enter the total cost of this item</div>
                 <div class="modal-error-message" id="itemPriceError"></div>
               </div>
-              <div class="modal-form-group">
+              <div class="modal-form-group" id="itemBulkGroup">
                 <label class="modal-label" for="modalBulkItems">Add Multiple Items</label>
                 <textarea
                   id="modalBulkItems"
                   class="modal-input modal-textarea"
                   placeholder="One item per line using Name, Price&#10;Pizza, 24.50&#10;Drinks, 9.00&#10;Dessert, 12.25"
                 ></textarea>
-                <div class="modal-form-hint">Optional. Paste multiple lines in the format Name, Price.</div>
-                <div class="modal-shortcut-hint">Press Cmd+Enter to submit on Mac, or Ctrl+Enter on other keyboards.</div>
+                <div class="modal-form-hint" id="itemBulkHint">Optional. Paste multiple lines in the format Name, Price.</div>
+                <div class="modal-shortcut-hint" id="itemShortcutHint">Press Cmd+Enter to submit on Mac, or Ctrl+Enter on other keyboards.</div>
                 <div class="modal-error-message" id="itemBulkError"></div>
                 <div class="modal-preview" id="itemPreview" style="display: none;"></div>
               </div>
@@ -245,7 +283,7 @@ export class BillCalculatorUI {
                 Cancel
               </button>
               <button class="modal-btn modal-btn-primary" onclick="billUI.addItemFromModal()" id="addItemSubmitBtn">
-                <span>Add Item</span>
+                <span id="itemSubmitButtonLabel">Add Item</span>
               </button>
             </div>
           </div>
@@ -526,6 +564,8 @@ export class BillCalculatorUI {
 
         .input-field {
           flex: 1;
+          min-width: 0;
+          width: 100%;
           padding: 12px 16px;
           border: 2px solid var(--border-color);
           border-radius: 8px;
@@ -534,6 +574,7 @@ export class BillCalculatorUI {
           background: var(--bg-primary);
           transition: all 0.2s ease;
           max-width: 300px;
+          box-sizing: border-box;
         }
 
         .input-field:focus {
@@ -972,8 +1013,59 @@ export class BillCalculatorUI {
         .bill-item-actions { 
           display: flex; 
           justify-content: flex-end;
+          gap: 8px;
           margin-top: auto;
           align-items: flex-end;
+        }
+
+        .bill-header-actions {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+        }
+
+        .edit-bill-btn {
+          background-color: var(--btn-secondary);
+          color: white;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+        }
+
+        .edit-bill-btn:hover {
+          background-color: var(--btn-secondary-hover);
+        }
+
+        .bill-edit-btn {
+          background-color: transparent;
+          color: var(--btn-primary);
+          border: 1px solid color-mix(in srgb, var(--btn-primary) 45%, transparent);
+          padding: 5px 12px;
+          border-radius: 999px;
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: 600;
+          align-self: flex-end;
+          transition: all 0.2s ease;
+        }
+
+        .bill-edit-btn:hover {
+          background-color: color-mix(in srgb, var(--btn-primary) 12%, transparent);
+          border-color: var(--btn-primary);
+          transform: translateY(-1px);
+        }
+
+        .bill-item.active .bill-edit-btn {
+          color: #ffffff;
+          border-color: rgba(255, 255, 255, 0.55);
+          background-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .bill-item.active .bill-edit-btn:hover {
+          background-color: rgba(255, 255, 255, 0.2);
+          border-color: rgba(255, 255, 255, 0.85);
         }
         
         .bill-header { 
@@ -1164,6 +1256,10 @@ export class BillCalculatorUI {
 
         .modal-content[data-modal="item"] .modal-title::before {
           content: "🧾";
+        }
+
+        .modal-content[data-modal="bill"] .modal-title::before {
+          content: "📋";
         }
 
         .modal-content[data-modal="assignment"] .modal-title::before {
@@ -2031,6 +2127,24 @@ export class BillCalculatorUI {
           background-color: var(--btn-success-hover);
         }
 
+        .item-action-select {
+          background-color: var(--btn-primary);
+          color: white;
+        }
+
+        .item-action-select:hover {
+          background-color: var(--btn-primary-hover);
+        }
+
+        .item-action-edit {
+          background-color: #0ea5a6;
+          color: white;
+        }
+
+        .item-action-edit:hover {
+          background-color: #0b7f80;
+        }
+
         .item-action-clear {
           background-color: var(--btn-secondary);
           color: white;
@@ -2138,19 +2252,38 @@ export class BillCalculatorUI {
           flex-grow: 1;
           color: var(--table-person-text);
         }
-        
+
+        .person-actions {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .person-edit-btn,
         .person-delete-btn {
-          background-color: var(--btn-danger);
           color: white;
           border: none;
           padding: 6px 10px;
           border-radius: 6px;
           cursor: pointer;
           font-size: 11px;
-          margin-left: 12px;
           flex-shrink: 0;
           font-weight: 500;
           transition: all 0.2s ease;
+        }
+
+        .person-edit-btn {
+          background-color: #0ea5a6;
+        }
+
+        .person-edit-btn:hover {
+          background-color: #0b7f80;
+          transform: scale(1.05);
+        }
+        
+        .person-delete-btn {
+          background-color: var(--btn-danger);
+          margin-left: 12px;
         }
         .person-delete-btn:hover { 
           background-color: var(--btn-danger-hover); 
@@ -2347,6 +2480,15 @@ export class BillCalculatorUI {
         
         /* Responsive design for smaller screens */
         @media (max-width: 768px) {
+          .container {
+            padding: 14px;
+          }
+
+          .section {
+            padding: 16px;
+            margin-bottom: 18px;
+          }
+
           .toast-container {
             left: 16px;
             right: 16px;
@@ -2360,8 +2502,38 @@ export class BillCalculatorUI {
 
           .app-header {
             flex-direction: column;
-            gap: 15px;
-            text-align: center;
+            align-items: stretch;
+            gap: 12px;
+            text-align: left;
+            margin-bottom: 22px;
+            padding-bottom: 16px;
+          }
+
+          .app-header h1 {
+            font-size: 28px;
+          }
+
+          .theme-toggle {
+            width: 100%;
+            justify-content: center;
+          }
+
+          .input-group {
+            flex-direction: column;
+          }
+
+          .input-field {
+            max-width: none;
+            width: 100%;
+          }
+
+          #billName {
+            max-width: none;
+            width: 100%;
+          }
+
+          .input-group .btn {
+            width: 100%;
           }
 
           .bill-overview-grid {
@@ -2386,16 +2558,80 @@ export class BillCalculatorUI {
             align-items: flex-start;
           }
 
+          .bill-header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 12px;
+          }
+
+          .bill-header-actions {
+            flex-direction: column;
+            align-items: stretch;
+          }
+
+          .edit-bill-btn,
+          .delete-bill-btn {
+            width: 100%;
+          }
+
+          .summary-header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 12px;
+          }
+
+          .summary-header h3 {
+            margin: 0;
+          }
+
+          .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            width: 100%;
+          }
+
+          .action-buttons > * {
+            width: 100%;
+            min-width: 0;
+          }
+
+          .add-person-btn-external,
+          .add-item-btn-external,
+          .export-btn-external,
+          .export-pdf-btn-external,
+          .export-csv-btn-external {
+            min-height: 40px;
+            padding: 10px 12px;
+            font-size: 12px;
+            line-height: 1.2;
+            text-align: center;
+          }
+
           .bill-management-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             justify-content: stretch;
+            align-items: stretch;
+            gap: 8px;
           }
 
           .bill-management-actions .btn {
             width: 100%;
+            min-width: 0;
+            min-height: 44px;
+            padding: 10px 12px;
+            white-space: normal;
+            line-height: 1.25;
           }
 
           .bill-import-dropzone {
             padding: 12px;
+            text-align: left;
+          }
+
+          .bill-import-dropzone-title {
+            font-size: 14px;
           }
 
           .mobile-summary-grid {
@@ -2405,8 +2641,52 @@ export class BillCalculatorUI {
           #billsList {
             flex-direction: column;
           }
+
           .bill-item {
             max-width: none;
+            min-width: 0;
+            min-height: 0;
+            padding: 14px;
+            gap: 10px;
+          }
+
+          .bill-item-title {
+            font-size: 15px;
+          }
+
+          .bill-item-stats {
+            font-size: 12px;
+            line-height: 1.5;
+          }
+
+          .bill-item-actions {
+            justify-content: stretch;
+          }
+
+          .bill-edit-btn,
+          .bill-delete-btn {
+            width: 100%;
+          }
+
+          .person-row-cell {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+          }
+
+          .person-actions {
+            width: 100%;
+          }
+
+          .person-edit-btn,
+          .person-delete-btn {
+            flex: 1 1 0;
+            margin-left: 0;
+          }
+
+          .instructions-text {
+            font-size: 13px;
+            line-height: 1.6;
           }
           
           th, td {
@@ -2467,32 +2747,90 @@ export class BillCalculatorUI {
           }
         }
         @media (max-width: 500px) {
-          .summary-header {
-            gap: 10px
+          .container {
+            padding: 10px;
           }
-          .action-buttons {
-            flex-direction: column;
+
+          .section {
+            padding: 12px;
+            border-radius: 12px;
           }
+
+          .app-header h1 {
+            font-size: 24px;
+          }
+
+          .bill-management-actions,
+          .action-buttons,
+          .bill-import-preview-stats {
+            grid-template-columns: 1fr;
+          }
+
           .add-person-btn-external {
-            padding: 4px 8px;
-            font-size: 10px;
+            padding: 10px 12px;
+            font-size: 12px;
           }
           .add-item-btn-external {
-            padding: 4px 8px;
-            font-size: 10px;
+            padding: 10px 12px;
+            font-size: 12px;
           }
-          .export-btn-external {
-            padding: 4px 8px;
-            font-size: 10px;
+          .export-btn-external,
+          .export-pdf-btn-external,
+          .export-csv-btn-external {
+            padding: 10px 12px;
+            font-size: 12px;
+          }
+
+          .modal-header,
+          .modal-body,
+          .modal-footer {
+            padding-left: 16px;
+            padding-right: 16px;
+          }
+
+          .modal-body {
+            padding-top: 18px;
+            padding-bottom: 18px;
+          }
+
+          .modal-footer {
+            padding-bottom: 16px;
+          }
+
+          .bill-import-preview-card {
+            padding: 12px;
+          }
+
+          .mobile-summary-card {
+            padding: 12px;
           }
         }
         @media (max-width: 410px) {
-          .input-group {
-            flex-direction: column;
-          }
-
           .bill-overview-grid {
             grid-template-columns: 1fr;
+          }
+
+          .app-header h1 {
+            font-size: 22px;
+          }
+
+          .theme-toggle,
+          .btn,
+          .delete-bill-btn,
+          .bill-delete-btn,
+          .modal-btn {
+            font-size: 12px;
+          }
+
+          .summary-table-container {
+            --summary-person-col-width: 156px;
+            --summary-item-col-width: 92px;
+            --summary-total-col-width: 88px;
+          }
+
+          .person-header,
+          .person-row-cell {
+            padding: 10px;
           }
         }
       </style>
@@ -2657,6 +2995,7 @@ export class BillCalculatorUI {
     document.getElementById('currentBillTitle')!.textContent = 'Current Bill';
     document.getElementById('summaryTable')!.innerHTML = '';
     document.body.style.overflow = '';
+    this.closeBillModal();
     this.closePersonModal();
     this.closeItemModal();
     this.closeItemAssignmentModal();
@@ -2791,6 +3130,12 @@ export class BillCalculatorUI {
         return;
       }
 
+      if (isModifiedEnter && this.isBillModalOpen()) {
+        e.preventDefault();
+        this.saveBillFromModal();
+        return;
+      }
+
       if (isModifiedEnter && this.isItemModalOpen()) {
         e.preventDefault();
         this.addItemFromModal();
@@ -2817,6 +3162,10 @@ export class BillCalculatorUI {
         this.addPersonFromModal();
       }
 
+      if ((e.key === 'Enter' || e.key === 'NumpadEnter') && this.isBillModalOpen()) {
+        this.saveBillFromModal();
+      }
+
       if ((e.key === 'Enter' || e.key === 'NumpadEnter') && this.isItemModalOpen()) {
         this.addItemFromModal();
       }
@@ -2830,6 +3179,7 @@ export class BillCalculatorUI {
       }
 
       if (e.key === 'Escape') {
+        this.closeBillModal();
         this.closePersonModal();
         this.closeItemModal();
         this.closeItemAssignmentModal();
@@ -3425,6 +3775,10 @@ export class BillCalculatorUI {
     }
   }
 
+  private isBillModalOpen(): boolean {
+    return document.getElementById('billEditModal')?.style.display === 'flex';
+  }
+
   private isPersonModalOpen(): boolean {
     return document.getElementById('personInputModal')?.style.display === 'flex';
   }
@@ -3739,6 +4093,107 @@ export class BillCalculatorUI {
     this.showToast(`Bill "${billName}" created`);
   }
 
+  editCurrentBill(): void {
+    if (!this.currentBillId) return;
+    this.editBill(this.currentBillId);
+  }
+
+  private showBillEditModal(billId: string): void {
+    const bill = this.calculator.getBill(billId);
+    if (!bill) return;
+
+    const modal = document.getElementById('billEditModal')!;
+    const input = document.getElementById('modalBillName') as HTMLInputElement;
+    const submitButton = document.getElementById('saveBillSubmitBtn') as HTMLButtonElement;
+
+    this.editingBillId = billId;
+    this.clearBillModalError();
+    input.value = bill.name;
+    submitButton.disabled = false;
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 150);
+  }
+
+  closeBillModal(): void {
+    const modal = document.getElementById('billEditModal');
+    const input = document.getElementById('modalBillName') as HTMLInputElement | null;
+    const submitButton = document.getElementById('saveBillSubmitBtn') as HTMLButtonElement | null;
+
+    this.editingBillId = null;
+    if (modal) {
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    if (input) {
+      input.value = '';
+      input.classList.remove('error');
+    }
+    this.clearBillModalError();
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.classList.remove('loading');
+    }
+    document.body.style.overflow = '';
+  }
+
+  saveBillFromModal(): void {
+    if (!this.editingBillId) return;
+
+    const input = document.getElementById('modalBillName') as HTMLInputElement;
+    const submitButton = document.getElementById('saveBillSubmitBtn') as HTMLButtonElement;
+    const nextBillName = input.value.trim();
+
+    this.clearBillModalError();
+    if (!nextBillName) {
+      this.showBillModalError('Bill name cannot be empty.');
+      input.focus();
+      return;
+    }
+
+    const bill = this.calculator.getBill(this.editingBillId);
+    if (!bill) {
+      this.closeBillModal();
+      return;
+    }
+
+    if (nextBillName === bill.name) {
+      this.closeBillModal();
+      return;
+    }
+
+    submitButton.classList.add('loading');
+    submitButton.disabled = true;
+
+    this.recordHistorySnapshot();
+    const updated = this.calculator.updateBillName(this.editingBillId, nextBillName);
+    if (!updated) {
+      submitButton.classList.remove('loading');
+      submitButton.disabled = false;
+      this.showBillModalError('Unable to update the bill name. Please try again.');
+      input.focus();
+      return;
+    }
+
+    this.updateBillsList();
+    if (this.currentBillId === this.editingBillId) {
+      document.getElementById('currentBillTitle')!.textContent = `Current Bill: ${nextBillName}`;
+      this.updateSummaryTable();
+    }
+    this.closeBillModal();
+    this.saveDraftState();
+    this.showToast(`Renamed bill to "${nextBillName}"`);
+  }
+
+  editBill(billId: string): void {
+    this.showBillEditModal(billId);
+  }
+
   exportCurrentBillJson(): void {
     if (!this.currentBillId) {
       this.showToast('Select a bill before exporting');
@@ -3852,16 +4307,51 @@ export class BillCalculatorUI {
     this.deleteBill(this.currentBillId);
   }
 
+  private clearBillModalError(): void {
+    const errorElement = document.getElementById('billNameError');
+    const input = document.getElementById('modalBillName') as HTMLInputElement | null;
+
+    if (errorElement) {
+      errorElement.style.display = 'none';
+      errorElement.textContent = '';
+    }
+    if (input) {
+      input.classList.remove('error');
+    }
+  }
+
+  private showBillModalError(message: string): void {
+    const errorElement = document.getElementById('billNameError');
+    const input = document.getElementById('modalBillName') as HTMLInputElement | null;
+
+    if (errorElement) {
+      errorElement.style.display = 'block';
+      errorElement.textContent = message;
+    }
+    if (input) {
+      input.classList.add('error');
+    }
+  }
+
   showPersonModal(): void {
     const modal = document.getElementById('personInputModal')!;
     const input = document.getElementById('modalPersonName') as HTMLInputElement;
     const bulkInput = document.getElementById('modalPersonNames') as HTMLTextAreaElement;
     const submitButton = document.getElementById('addPersonSubmitBtn') as HTMLButtonElement;
+    const title = document.getElementById('personModalTitle');
+    const nameHint = document.getElementById('personNameHint');
+    const bulkGroup = document.getElementById('personBulkGroup');
+    const submitButtonLabel = document.getElementById('personSubmitButtonLabel');
     
+    this.editingPersonId = null;
     modal.style.display = 'flex';
     modal.setAttribute('aria-hidden', 'false');
     
     // Clear previous values and errors
+    if (title) title.textContent = 'Add Person';
+    if (nameHint) nameHint.textContent = 'Who will be splitting the bill?';
+    if (bulkGroup) bulkGroup.style.display = '';
+    if (submitButtonLabel) submitButtonLabel.textContent = 'Add Person';
     input.value = '';
     bulkInput.value = '';
     this.clearModalErrors('person');
@@ -3881,11 +4371,20 @@ export class BillCalculatorUI {
   closePersonModal(): void {
     const modal = document.getElementById('personInputModal')!;
     const submitButton = document.getElementById('addPersonSubmitBtn') as HTMLButtonElement;
+    const title = document.getElementById('personModalTitle');
+    const nameHint = document.getElementById('personNameHint');
+    const bulkGroup = document.getElementById('personBulkGroup');
+    const submitButtonLabel = document.getElementById('personSubmitButtonLabel');
     
+    this.editingPersonId = null;
     modal.style.display = 'none';
     modal.setAttribute('aria-hidden', 'true');
     
     // Clear form
+    if (title) title.textContent = 'Add Person';
+    if (nameHint) nameHint.textContent = 'Who will be splitting the bill?';
+    if (bulkGroup) bulkGroup.style.display = '';
+    if (submitButtonLabel) submitButtonLabel.textContent = 'Add Person';
     (document.getElementById('modalPersonName') as HTMLInputElement).value = '';
     (document.getElementById('modalPersonNames') as HTMLTextAreaElement).value = '';
     this.clearModalErrors('person');
@@ -3906,6 +4405,49 @@ export class BillCalculatorUI {
     
     // Clear previous errors
     this.clearModalErrors('person');
+
+    if (this.editingPersonId) {
+      const nextPersonName = personNameInput.value.trim();
+
+      if (!nextPersonName) {
+        this.showModalError('person', 'personName', 'Enter a person name');
+        personNameInput.focus();
+        return;
+      }
+
+      const bill = this.calculator.getBill(this.currentBillId);
+      const existingPerson = bill?.persons.find(person => person.id === this.editingPersonId);
+      if (!existingPerson) {
+        this.closePersonModal();
+        return;
+      }
+
+      if (nextPersonName === existingPerson.name) {
+        this.closePersonModal();
+        return;
+      }
+
+      addButton.classList.add('loading');
+      addButton.disabled = true;
+
+      this.recordHistorySnapshot();
+      const updated = this.calculator.updatePersonName(this.currentBillId, this.editingPersonId, nextPersonName);
+      if (!updated) {
+        addButton.classList.remove('loading');
+        addButton.disabled = false;
+        this.showModalError('person', 'personName', 'Unable to update the person name. Check for duplicates and try again.');
+        personNameInput.focus();
+        return;
+      }
+
+      this.closePersonModal();
+      this.updateSummaryTable();
+      this.saveDraftState();
+      this.showToast(`Updated ${nextPersonName}`);
+      addButton.classList.remove('loading');
+      addButton.disabled = false;
+      return;
+    }
     
     if (personEntries.names.length === 0) {
       this.showModalError('person', 'personName', 'Enter one name or paste multiple names');
@@ -3959,15 +4501,27 @@ export class BillCalculatorUI {
   showItemModal(): void {
     const modal = document.getElementById('itemInputModal')!;
     const nameInput = document.getElementById('modalItemName') as HTMLInputElement;
+    const priceInput = document.getElementById('modalItemPrice') as HTMLInputElement;
     const bulkInput = document.getElementById('modalBulkItems') as HTMLTextAreaElement;
     const submitButton = document.getElementById('addItemSubmitBtn') as HTMLButtonElement;
+    const title = document.getElementById('itemModalTitle');
+    const nameHint = document.getElementById('itemNameHint');
+    const priceHint = document.getElementById('itemPriceHint');
+    const bulkGroup = document.getElementById('itemBulkGroup');
+    const submitButtonLabel = document.getElementById('itemSubmitButtonLabel');
     
+    this.editingItemId = null;
     modal.style.display = 'flex';
     modal.setAttribute('aria-hidden', 'false');
     
     // Clear previous values and errors
+    if (title) title.textContent = 'Add Item';
+    if (nameHint) nameHint.textContent = 'What item are you adding to the bill?';
+    if (priceHint) priceHint.textContent = 'Enter the total cost of this item';
+    if (bulkGroup) bulkGroup.style.display = '';
+    if (submitButtonLabel) submitButtonLabel.textContent = 'Add Item';
     nameInput.value = '';
-    (document.getElementById('modalItemPrice') as HTMLInputElement).value = '';
+    priceInput.value = '';
     bulkInput.value = '';
     this.clearModalErrors('item');
     this.updateItemPreview();
@@ -3986,11 +4540,22 @@ export class BillCalculatorUI {
   closeItemModal(): void {
     const modal = document.getElementById('itemInputModal')!;
     const submitButton = document.getElementById('addItemSubmitBtn') as HTMLButtonElement;
+    const title = document.getElementById('itemModalTitle');
+    const nameHint = document.getElementById('itemNameHint');
+    const priceHint = document.getElementById('itemPriceHint');
+    const bulkGroup = document.getElementById('itemBulkGroup');
+    const submitButtonLabel = document.getElementById('itemSubmitButtonLabel');
     
+    this.editingItemId = null;
     modal.style.display = 'none';
     modal.setAttribute('aria-hidden', 'true');
     
     // Clear form
+    if (title) title.textContent = 'Add Item';
+    if (nameHint) nameHint.textContent = 'What item are you adding to the bill?';
+    if (priceHint) priceHint.textContent = 'Enter the total cost of this item';
+    if (bulkGroup) bulkGroup.style.display = '';
+    if (submitButtonLabel) submitButtonLabel.textContent = 'Add Item';
     (document.getElementById('modalItemName') as HTMLInputElement).value = '';
     (document.getElementById('modalItemPrice') as HTMLInputElement).value = '';
     (document.getElementById('modalBulkItems') as HTMLTextAreaElement).value = '';
@@ -4145,6 +4710,66 @@ export class BillCalculatorUI {
     
     // Clear previous errors
     this.clearModalErrors('item');
+
+    if (this.editingItemId) {
+      if (!itemName) {
+        this.showModalError('item', 'itemName', 'Please enter an item name');
+        itemNameInput.focus();
+        return;
+      }
+
+      if (!itemPriceInput.value || isNaN(itemPrice)) {
+        this.showModalError('item', 'itemPrice', 'Please enter a valid price');
+        itemPriceInput.focus();
+        return;
+      }
+
+      if (itemPrice <= 0) {
+        this.showModalError('item', 'itemPrice', 'Price must be greater than 0');
+        itemPriceInput.focus();
+        return;
+      }
+
+      if (itemPrice > 1000000.00) {
+        this.showModalError('item', 'itemPrice', 'Price cannot exceed $1,000,000');
+        itemPriceInput.focus();
+        return;
+      }
+
+      const bill = this.calculator.getBill(this.currentBillId);
+      const existingItem = bill?.items.find(candidate => candidate.id === this.editingItemId);
+      if (!existingItem) {
+        this.closeItemModal();
+        return;
+      }
+
+      if (itemName === existingItem.name && Math.abs(itemPrice - existingItem.price) < 0.000001) {
+        this.closeItemModal();
+        return;
+      }
+
+      addButton.classList.add('loading');
+      addButton.disabled = true;
+
+      this.recordHistorySnapshot();
+      const updated = this.calculator.updateItem(this.currentBillId, this.editingItemId, itemName, itemPrice);
+      if (!updated) {
+        addButton.classList.remove('loading');
+        addButton.disabled = false;
+        this.showModalError('item', 'itemName', 'Unable to update the item. Please try again.');
+        itemNameInput.focus();
+        return;
+      }
+
+      this.closeItemModal();
+      this.updateSummaryTable();
+      this.saveDraftState();
+      this.showToast(`Updated ${itemName}`);
+
+      addButton.classList.remove('loading');
+      addButton.disabled = false;
+      return;
+    }
     
     let hasErrors = false;
     
@@ -4281,10 +4906,13 @@ export class BillCalculatorUI {
     const bulkPersonInput = document.getElementById('modalPersonNames') as HTMLTextAreaElement | null;
     if (!previewElement || !personNameInput || !bulkPersonInput) return;
 
-    const personEntries = this.parsePersonEntries(personNameInput.value, bulkPersonInput.value);
+    const isEditingPerson = this.editingPersonId !== null;
+    const personEntries = isEditingPerson
+      ? { names: personNameInput.value.trim() ? [personNameInput.value.trim()] : [], invalidNames: [] as string[], duplicateNames: [] as string[] }
+      : this.parsePersonEntries(personNameInput.value, bulkPersonInput.value);
     const bill = this.currentBillId ? this.calculator.getBill(this.currentBillId) : undefined;
     const existingNames = personEntries.names.filter(name =>
-      bill?.persons.some(person => person.name.toLowerCase() === name.toLowerCase())
+      bill?.persons.some(person => person.id !== this.editingPersonId && person.name.toLowerCase() === name.toLowerCase())
     );
     const readyCount = Math.max(personEntries.names.length - existingNames.length, 0);
 
@@ -4296,7 +4924,7 @@ export class BillCalculatorUI {
     }
 
     const previewLines = [`<strong>Preview</strong>`];
-    previewLines.push(`<div class="modal-preview-summary">Ready to add: ${readyCount} person(s)</div>`);
+  previewLines.push(`<div class="modal-preview-summary">${isEditingPerson ? `Ready to save: ${readyCount} person` : `Ready to add: ${readyCount} person(s)`}</div>`);
 
     if (personEntries.invalidNames.length > 0) {
       previewLines.push(`<div class="modal-preview-warning">Empty names are not allowed: ${personEntries.invalidNames.join(', ')}</div>`);
@@ -4322,7 +4950,8 @@ export class BillCalculatorUI {
     const bulkItemsInput = document.getElementById('modalBulkItems') as HTMLTextAreaElement | null;
     if (!previewElement || !itemNameInput || !itemPriceInput || !bulkItemsInput) return;
 
-    const bulkResult = this.parseBulkItemEntries(bulkItemsInput.value);
+    const isEditingItem = this.editingItemId !== null;
+    const bulkResult = isEditingItem ? { items: [], invalidLines: [] as string[] } : this.parseBulkItemEntries(bulkItemsInput.value);
     const itemEntriesCount = bulkResult.items.length;
     const hasSingleInput = itemNameInput.value.trim().length > 0 || itemPriceInput.value.trim().length > 0;
     const singleItemIssues: string[] = [];
@@ -4358,7 +4987,7 @@ export class BillCalculatorUI {
 
     const previewLines = [`<strong>Preview</strong>`];
     const readyCount = singleItemReady + itemEntriesCount;
-    previewLines.push(`<div class="modal-preview-summary">Ready to add: ${readyCount} item(s)</div>`);
+    previewLines.push(`<div class="modal-preview-summary">${isEditingItem ? `Ready to save: ${readyCount} item` : `Ready to add: ${readyCount} item(s)`}</div>`);
 
     if (singleItemIssues.length > 0) {
       previewLines.push(`<div class="modal-preview-warning">${singleItemIssues.join(' | ')}</div>`);
@@ -4479,6 +5108,44 @@ export class BillCalculatorUI {
     }
   }
 
+  editPerson(personId: string): void {
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    const person = bill?.persons.find(existingPerson => existingPerson.id === personId);
+    if (!bill || !person) return;
+
+    const modal = document.getElementById('personInputModal')!;
+    const title = document.getElementById('personModalTitle');
+    const nameHint = document.getElementById('personNameHint');
+    const input = document.getElementById('modalPersonName') as HTMLInputElement;
+    const bulkInput = document.getElementById('modalPersonNames') as HTMLTextAreaElement;
+    const bulkGroup = document.getElementById('personBulkGroup');
+    const submitButton = document.getElementById('addPersonSubmitBtn') as HTMLButtonElement;
+    const submitButtonLabel = document.getElementById('personSubmitButtonLabel');
+
+    this.editingPersonId = personId;
+    if (title) title.textContent = 'Edit Person';
+    if (nameHint) nameHint.textContent = 'Update the name used in this bill.';
+    if (bulkGroup) bulkGroup.style.display = 'none';
+    if (submitButtonLabel) submitButtonLabel.textContent = 'Save Changes';
+
+    input.value = person.name;
+    bulkInput.value = '';
+    this.clearModalErrors('person');
+    this.updatePersonPreview();
+    submitButton.disabled = false;
+
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 150);
+  }
+
   removeItem(itemId: string): void {
     if (!this.currentBillId) return;
 
@@ -4492,6 +5159,48 @@ export class BillCalculatorUI {
       this.saveDraftState();
       this.showToast(`Removed ${item?.name || 'item'}`);
     }
+  }
+
+  editItem(itemId: string): void {
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    const item = bill?.items.find(existingItem => existingItem.id === itemId);
+    if (!bill || !item) return;
+
+    const modal = document.getElementById('itemInputModal')!;
+    const title = document.getElementById('itemModalTitle');
+    const nameHint = document.getElementById('itemNameHint');
+    const priceHint = document.getElementById('itemPriceHint');
+    const nameInput = document.getElementById('modalItemName') as HTMLInputElement;
+    const priceInput = document.getElementById('modalItemPrice') as HTMLInputElement;
+    const bulkInput = document.getElementById('modalBulkItems') as HTMLTextAreaElement;
+    const bulkGroup = document.getElementById('itemBulkGroup');
+    const submitButton = document.getElementById('addItemSubmitBtn') as HTMLButtonElement;
+    const submitButtonLabel = document.getElementById('itemSubmitButtonLabel');
+
+    this.editingItemId = itemId;
+    if (title) title.textContent = 'Edit Item';
+    if (nameHint) nameHint.textContent = 'Update the item name for this bill.';
+    if (priceHint) priceHint.textContent = 'Update the full price for this item.';
+    if (bulkGroup) bulkGroup.style.display = 'none';
+    if (submitButtonLabel) submitButtonLabel.textContent = 'Save Changes';
+
+    nameInput.value = item.name;
+    priceInput.value = item.price.toFixed(2);
+    bulkInput.value = '';
+    this.clearModalErrors('item');
+    this.updateItemPreview();
+    submitButton.disabled = false;
+
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+
+    setTimeout(() => {
+      nameInput.focus();
+      nameInput.select();
+    }, 150);
   }
 
   private updateBillsList(): void {
@@ -4521,6 +5230,9 @@ export class BillCalculatorUI {
             </div>
           </div>
           <div class="bill-item-actions">
+            <button class="bill-edit-btn" onclick="event.stopPropagation(); billUI.editBill('${bill.id}')">
+              Edit
+            </button>
             <button class="bill-delete-btn" onclick="event.stopPropagation(); billUI.deleteBill('${bill.id}')">
               Delete
             </button>
@@ -4987,7 +5699,10 @@ export class BillCalculatorUI {
                         ${item.dividers.length === 0 ? '<div class="summary-table-header-badge">Unassigned</div>' : ''}
                       </div>
                       <div class="item-header-actions">
-                        <button class="item-action-btn item-action-clear" onclick="billUI.showItemAssignmentModal('${item.id}')" title="Select people for ${item.name}">
+                          <button class="item-action-btn item-action-edit" onclick="billUI.editItem('${item.id}')" title="Edit ${item.name}">
+                            Edit
+                          </button>
+                        <button class="item-action-btn item-action-select" onclick="billUI.showItemAssignmentModal('${item.id}')" title="Select people for ${item.name}">
                           Select
                         </button>
                         <button class="item-action-btn item-action-assign" onclick="billUI.assignItemToAllPeople('${item.id}')" title="Assign ${item.name} to everyone" ${allAssigned ? 'disabled' : ''}>
@@ -5017,9 +5732,14 @@ export class BillCalculatorUI {
                     <td class="person-cell">
                       <div class="person-row-cell">
                         <span class="person-name">${person.name}</span>
-                        <button class="person-delete-btn" onclick="billUI.removePerson('${person.id}')">
-                          Delete
-                        </button>
+                        <div class="person-actions">
+                          <button class="person-edit-btn" onclick="billUI.editPerson('${person.id}')">
+                            Edit
+                          </button>
+                          <button class="person-delete-btn" onclick="billUI.removePerson('${person.id}')">
+                            Delete
+                          </button>
+                        </div>
                       </div>
                     </td>
                   </tr>

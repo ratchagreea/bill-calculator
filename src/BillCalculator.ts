@@ -112,6 +112,17 @@ export class BillCalculator {
     return billId;
   }
 
+  updateBillName(billId: string, name: string): boolean {
+    const bill = this.getBill(billId);
+    if (!bill) return false;
+
+    const normalizedName = this.normalizeName(name);
+    if (!normalizedName) return false;
+
+    bill.name = normalizedName;
+    return true;
+  }
+
   // Get all bills
   getBills(): Bill[] {
     return this.bills;
@@ -163,6 +174,25 @@ export class BillCalculator {
     return addedCount;
   }
 
+  updatePersonName(billId: string, personId: string, name: string): boolean {
+    const bill = this.getBill(billId);
+    if (!bill) return false;
+
+    const person = bill.persons.find(existingPerson => existingPerson.id === personId);
+    if (!person) return false;
+
+    const normalizedName = this.normalizeName(name);
+    if (!normalizedName) return false;
+
+    const duplicateNameExists = bill.persons.some(existingPerson =>
+      existingPerson.id !== personId && existingPerson.name.toLowerCase() === normalizedName.toLowerCase()
+    );
+    if (duplicateNameExists) return false;
+
+    person.name = normalizedName;
+    return true;
+  }
+
   // Add item to a bill
   addItem(billId: string, name: string, price: number): boolean {
     const bill = this.getBill(billId);
@@ -192,6 +222,21 @@ export class BillCalculator {
     });
 
     return addedCount;
+  }
+
+  updateItem(billId: string, itemId: string, name: string, price: number): boolean {
+    const bill = this.getBill(billId);
+    if (!bill) return false;
+
+    const item = bill.items.find(existingItem => existingItem.id === itemId);
+    if (!item) return false;
+
+    const normalizedName = this.normalizeName(name);
+    if (!normalizedName || !Number.isFinite(price) || price <= 0) return false;
+
+    item.name = normalizedName;
+    item.price = price;
+    return true;
   }
 
   // Toggle person as divider for an item
