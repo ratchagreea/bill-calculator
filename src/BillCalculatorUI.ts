@@ -1005,6 +1005,7 @@ export class BillCalculatorUI {
         }
 
         .summary-table-header-shell {
+          align-items: stretch;
           position: sticky;
           top: 0;
           z-index: 20;
@@ -1043,6 +1044,8 @@ export class BillCalculatorUI {
         }
 
         .summary-table-header-fixed {
+          display: flex;
+          align-items: stretch;
           border-right: 1px solid var(--table-border);
           background-color: var(--table-header-bg);
           color: var(--table-header-text);
@@ -1067,6 +1070,8 @@ export class BillCalculatorUI {
         }
 
         .summary-header-fixed-cell {
+          min-height: 100%;
+          height: 100%;
           min-width: var(--summary-person-col-width);
           width: var(--summary-person-col-width);
           max-width: var(--summary-person-col-width);
@@ -1252,6 +1257,8 @@ export class BillCalculatorUI {
           max-width: var(--summary-total-col-width);
           padding: 16px;
           box-sizing: border-box;
+          text-align: center;
+          vertical-align: middle;
         }
         
         .total-row { 
@@ -1274,20 +1281,34 @@ export class BillCalculatorUI {
           width: var(--summary-item-col-width);
           max-width: var(--summary-item-col-width);
           box-sizing: border-box;
+          text-align: center;
+          vertical-align: middle;
+        }
+
+        .checkbox-cell-content {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          width: 100%;
+          min-height: 100%;
         }
         
         .divider-checkbox {
           transform: scale(1.3);
           cursor: pointer;
           accent-color: var(--btn-success);
-          margin-bottom: 8px;
+          margin: 0;
         }
         
         .checkbox-cell small {
           display: block;
           font-size: 11px;
           font-weight: 500;
-          margin-top: 4px;
+          margin: 0;
+          text-align: center;
+          width: 100%;
         }
         
         .person-name {
@@ -1687,6 +1708,30 @@ export class BillCalculatorUI {
 
     bodyScroll.addEventListener('scroll', syncHeader);
     syncHeader();
+  }
+
+  private getSummaryTableScrollLeft(): number {
+    const bodyScroll = document.querySelector('.summary-table-body-scroll') as HTMLElement | null;
+    const headerScroll = document.querySelector('.summary-table-header-scroll') as HTMLElement | null;
+
+    if (bodyScroll) {
+      return bodyScroll.scrollLeft;
+    }
+
+    if (headerScroll) {
+      return headerScroll.scrollLeft;
+    }
+
+    return 0;
+  }
+
+  private restoreSummaryTableScrollLeft(scrollLeft: number): void {
+    const headerScroll = document.querySelector('.summary-table-header-scroll') as HTMLElement | null;
+    const bodyScroll = document.querySelector('.summary-table-body-scroll') as HTMLElement | null;
+    if (!headerScroll || !bodyScroll) return;
+
+    bodyScroll.scrollLeft = scrollLeft;
+    headerScroll.scrollLeft = scrollLeft;
   }
 
   private showToast(message: string): void {
@@ -2464,6 +2509,7 @@ export class BillCalculatorUI {
     if (!this.currentBillId) return;
 
     const bill = this.calculator.getBill(this.currentBillId);
+    const preservedScrollLeft = this.getSummaryTableScrollLeft();
     const summaryTable = document.getElementById('summaryTable')!;
     const addPersonBtn = document.getElementById('addPersonBtn')!;
     const addItemBtn = document.getElementById('addItemBtn')!;
@@ -2620,14 +2666,16 @@ export class BillCalculatorUI {
 
                       return `
                         <td class="checkbox-cell" data-col-index="${index + 1}">
-                          <input type="checkbox"
-                                 class="divider-checkbox"
-                                 ${isChecked ? 'checked' : ''}
-                                 onchange="billUI.toggleDividerFromTable('${item.id}', '${person.id}')"
-                                 id="checkbox_${person.id}_${item.id}">
-                          <small style="color: ${amount > 0 ? 'var(--btn-success)' : 'var(--text-secondary)'}; font-weight: ${amount > 0 ? '600' : 'normal'};">
-                            ${amount > 0 ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
-                          </small>
+                          <div class="checkbox-cell-content">
+                            <input type="checkbox"
+                                   class="divider-checkbox"
+                                   ${isChecked ? 'checked' : ''}
+                                   onchange="billUI.toggleDividerFromTable('${item.id}', '${person.id}')"
+                                   id="checkbox_${person.id}_${item.id}">
+                            <small style="color: ${amount > 0 ? 'var(--btn-success)' : 'var(--text-secondary)'}; font-weight: ${amount > 0 ? '600' : 'normal'};">
+                              ${amount > 0 ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
+                            </small>
+                          </div>
                         </td>
                       `;
                     }).join('')}
@@ -2650,7 +2698,11 @@ export class BillCalculatorUI {
 
     this.attachSummaryTableScrollSync();
     this.attachSummaryTableHoverEffects();
-    window.requestAnimationFrame(() => this.syncSummaryTableRowHeights());
+    window.requestAnimationFrame(() => {
+      this.restoreSummaryTableScrollLeft(preservedScrollLeft);
+      this.syncSummaryTableRowHeights();
+      this.restoreSummaryTableScrollLeft(preservedScrollLeft);
+    });
 
   }
 
