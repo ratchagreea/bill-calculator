@@ -40,13 +40,31 @@ export class BillCalculator {
     const bill = this.getBill(billId);
     if (!bill) return false;
 
+    const normalizedName = this.normalizeName(name);
+    if (!normalizedName) return false;
+
+    const personExists = bill.persons.some(person => person.name.toLowerCase() === normalizedName.toLowerCase());
+    if (personExists) return false;
+
     const personId = this.generateId();
     const newPerson: Person = {
       id: personId,
-      name
+      name: normalizedName
     };
     bill.persons.push(newPerson);
     return true;
+  }
+
+  addPeople(billId: string, names: string[]): number {
+    let addedCount = 0;
+
+    names.forEach(name => {
+      if (this.addPerson(billId, name)) {
+        addedCount += 1;
+      }
+    });
+
+    return addedCount;
   }
 
   // Add item to a bill
@@ -54,15 +72,30 @@ export class BillCalculator {
     const bill = this.getBill(billId);
     if (!bill) return false;
 
+    const normalizedName = this.normalizeName(name);
+    if (!normalizedName || !Number.isFinite(price) || price <= 0) return false;
+
     const itemId = this.generateId();
     const newItem: Item = {
       id: itemId,
-      name,
+      name: normalizedName,
       price,
       dividers: []
     };
     bill.items.push(newItem);
     return true;
+  }
+
+  addItems(billId: string, items: Array<{ name: string; price: number }>): number {
+    let addedCount = 0;
+
+    items.forEach(item => {
+      if (this.addItem(billId, item.name, item.price)) {
+        addedCount += 1;
+      }
+    });
+
+    return addedCount;
   }
 
   // Toggle person as divider for an item
@@ -154,5 +187,9 @@ export class BillCalculator {
 
   private generateId(): string {
     return Math.random().toString(36).substr(2, 9);
+  }
+
+  private normalizeName(value: string): string {
+    return value.trim().replace(/\s+/g, ' ');
   }
 }
