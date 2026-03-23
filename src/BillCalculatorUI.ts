@@ -10,6 +10,7 @@ interface SavedDraftState {
 export class BillCalculatorUI {
   private calculator: BillCalculator;
   private currentBillId: string | null = null;
+  private showOnlyUnassignedItems = false;
   private isDarkTheme: boolean;
   private toastTimeoutId: number | null = null;
   private readonly draftStorageKey = 'billCalculatorDraft';
@@ -68,6 +69,12 @@ export class BillCalculatorUI {
               <div class="summary-header">
                 <h3>Payment Summary & Management</h3>
                 <div class="action-buttons">
+                  <button id="toggleUnassignedFilterBtn" class="btn btn-secondary" onclick="billUI.toggleUnassignedItemsFilter()" style="display: none;">
+                    Show Unassigned Only
+                  </button>
+                  <button id="assignAllUnassignedBtn" class="btn btn-secondary" onclick="billUI.assignAllUnassignedItems()" style="display: none;">
+                    Assign All Unassigned
+                  </button>
                   <button id="addPersonBtn" class="add-person-btn-external" onclick="billUI.showPersonModal()" style="display: none;">
                     + Person
                   </button>
@@ -622,6 +629,42 @@ export class BillCalculatorUI {
           background: var(--table-total-bg);
           border-color: var(--table-total-bg);
           color: var(--table-total-text);
+        }
+
+        .warning-banner {
+          margin-bottom: 18px;
+          padding: 16px 18px;
+          border-radius: 14px;
+          background: linear-gradient(180deg, rgba(255, 243, 205, 0.92), rgba(255, 248, 230, 0.98));
+          border: 1px solid #f2c46d;
+          box-shadow: 0 10px 18px var(--shadow);
+        }
+
+        [data-theme="dark"] .warning-banner {
+          background: linear-gradient(180deg, rgba(120, 73, 15, 0.34), rgba(79, 49, 12, 0.44));
+          border-color: #b7791f;
+        }
+
+        .warning-banner-title {
+          margin: 0 0 6px 0;
+          color: #8a5a00;
+          font-size: 16px;
+          font-weight: 800;
+        }
+
+        [data-theme="dark"] .warning-banner-title {
+          color: #f6ad55;
+        }
+
+        .warning-banner-text {
+          margin: 0;
+          color: #6b4b07;
+          font-size: 13px;
+          line-height: 1.6;
+        }
+
+        [data-theme="dark"] .warning-banner-text {
+          color: #fbd38d;
         }
 
         .settlement-card {
@@ -1371,6 +1414,41 @@ export class BillCalculatorUI {
           color: var(--table-total-text);
         }
 
+        .summary-table-header-cell.is-unassigned {
+          background: linear-gradient(180deg, #fff4d6, #ffe7ad);
+          color: #6f4a00;
+          border-bottom-color: #e6b85c;
+        }
+
+        [data-theme="dark"] .summary-table-header-cell.is-unassigned {
+          background: linear-gradient(180deg, #5a3b11, #7a5014);
+          color: #fbd38d;
+          border-bottom-color: #d69e2e;
+        }
+
+        .summary-table-header-cell.is-unassigned small {
+          color: inherit !important;
+        }
+
+        .summary-table-header-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          margin-top: 6px;
+          padding: 3px 8px;
+          border-radius: 999px;
+          background: rgba(111, 74, 0, 0.14);
+          color: inherit;
+          font-size: 10px;
+          font-weight: 800;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+
+        [data-theme="dark"] .summary-table-header-badge {
+          background: rgba(251, 211, 141, 0.16);
+        }
+
         .summary-header-cell-content {
           display: flex;
           flex-direction: column;
@@ -1559,6 +1637,14 @@ export class BillCalculatorUI {
           box-sizing: border-box;
           text-align: center;
           vertical-align: middle;
+        }
+
+        .checkbox-cell.is-unassigned-column {
+          background: rgba(255, 243, 205, 0.58) !important;
+        }
+
+        [data-theme="dark"] .checkbox-cell.is-unassigned-column {
+          background: rgba(120, 73, 15, 0.28) !important;
         }
 
         .checkbox-cell-content {
@@ -2014,6 +2100,7 @@ export class BillCalculatorUI {
 
   private resetCurrentBillView(): void {
     this.currentBillId = null;
+    this.showOnlyUnassignedItems = false;
     document.getElementById('currentBillSection')!.style.display = 'none';
     document.getElementById('currentBillTitle')!.textContent = 'Current Bill';
     document.getElementById('summaryTable')!.innerHTML = '';
@@ -2436,6 +2523,22 @@ export class BillCalculatorUI {
     `;
   }
 
+  private renderUnassignedWarning(bill: Bill): string {
+    const { unassignedItemsTotal } = this.calculateBillChargeTotals(bill);
+    if (unassignedItemsTotal <= 0.009) {
+      return '';
+    }
+
+    const unassignedItemsCount = bill.items.filter(item => item.dividers.length === 0).length;
+
+    return `
+      <div class="warning-banner">
+        <h4 class="warning-banner-title">Unassigned items are excluded from the split</h4>
+        <p class="warning-banner-text">${unassignedItemsCount} item(s) worth $${unassignedItemsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} are not assigned to anyone yet. They are excluded from the split total, charges, settlement instructions, and export summary until at least one person is selected for each item.</p>
+      </div>
+    `;
+  }
+
   private renderEmptyWorkflowState(title: string, description: string, steps: string[]): string {
     return `
       <div class="empty-workflow-state">
@@ -2850,6 +2953,7 @@ export class BillCalculatorUI {
 
   selectBill(billId: string): void {
     this.currentBillId = billId;
+    this.showOnlyUnassignedItems = false;
     const bill = this.calculator.getBill(billId);
     if (!bill) return;
 
@@ -3436,13 +3540,72 @@ export class BillCalculatorUI {
     }).join('');
   }
 
+  toggleUnassignedItemsFilter(): void {
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    if (!bill) return;
+
+    const hasUnassignedItems = bill.items.some(item => item.dividers.length === 0);
+    if (!hasUnassignedItems) {
+      this.showOnlyUnassignedItems = false;
+      this.updateSummaryTable();
+      this.showToast('No unassigned items to filter');
+      return;
+    }
+
+    this.showOnlyUnassignedItems = !this.showOnlyUnassignedItems;
+    this.updateSummaryTable();
+    this.showToast(this.showOnlyUnassignedItems ? 'Showing unassigned items only' : 'Showing all items');
+  }
+
+  assignAllUnassignedItems(): void {
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    if (!bill) return;
+
+    if (bill.persons.length === 0) {
+      this.showToast('Add people before assigning unassigned items');
+      return;
+    }
+
+    const unassignedItems = bill.items.filter(item => item.dividers.length === 0);
+    if (unassignedItems.length === 0) {
+      this.showToast('No unassigned items to assign');
+      return;
+    }
+
+    const confirmed = confirm(`Assign ${unassignedItems.length} unassigned item(s) to all ${bill.persons.length} people in this bill?`);
+    if (!confirmed) {
+      return;
+    }
+
+    this.recordHistorySnapshot();
+    unassignedItems.forEach(item => {
+      bill.persons.forEach(person => {
+        this.calculator.togglePersonAsDivider(this.currentBillId!, item.id, person.id);
+      });
+    });
+
+    this.showOnlyUnassignedItems = false;
+    this.updateSummaryTable();
+    this.saveDraftState();
+    this.showToast(`Assigned ${unassignedItems.length} item(s) to everyone`);
+  }
+
   private updateSummaryTable(focusElementId?: string): void {
     if (!this.currentBillId) return;
 
     const bill = this.calculator.getBill(this.currentBillId);
+    if (bill && this.showOnlyUnassignedItems && !bill.items.some(item => item.dividers.length === 0)) {
+      this.showOnlyUnassignedItems = false;
+    }
     const preservedScrollLeft = this.getSummaryTableScrollLeft();
     const preservedWindowScrollY = window.scrollY;
     const summaryTable = document.getElementById('summaryTable')!;
+    const toggleUnassignedFilterBtn = document.getElementById('toggleUnassignedFilterBtn') as HTMLButtonElement | null;
+    const assignAllUnassignedBtn = document.getElementById('assignAllUnassignedBtn') as HTMLButtonElement | null;
     const addPersonBtn = document.getElementById('addPersonBtn')!;
     const addItemBtn = document.getElementById('addItemBtn')!;
     const exportBtn = document.getElementById('exportBtn')!;
@@ -3450,6 +3613,8 @@ export class BillCalculatorUI {
     
     if (!bill) {
       summaryTable.innerHTML = '<div class="no-data-message">Bill not found.</div>';
+      if (toggleUnassignedFilterBtn) toggleUnassignedFilterBtn.style.display = 'none';
+      if (assignAllUnassignedBtn) assignAllUnassignedBtn.style.display = 'none';
       addPersonBtn.style.display = 'none';
       addItemBtn.style.display = 'none';
       exportBtn.style.display = 'none';
@@ -3457,11 +3622,24 @@ export class BillCalculatorUI {
       return;
     }
 
+    const unassignedItems = bill.items.filter(item => item.dividers.length === 0);
+    const visibleItems = this.showOnlyUnassignedItems ? unassignedItems : bill.items;
+
     // Always show all buttons when bill is selected
+    if (toggleUnassignedFilterBtn) {
+      toggleUnassignedFilterBtn.style.display = bill.items.length > 0 ? 'inline-flex' : 'none';
+      toggleUnassignedFilterBtn.textContent = this.showOnlyUnassignedItems ? 'Show All Items' : 'Show Unassigned Only';
+      toggleUnassignedFilterBtn.disabled = unassignedItems.length === 0;
+    }
+    if (assignAllUnassignedBtn) {
+      assignAllUnassignedBtn.style.display = bill.items.length > 0 ? 'inline-flex' : 'none';
+      assignAllUnassignedBtn.disabled = bill.persons.length === 0 || unassignedItems.length === 0;
+    }
     addPersonBtn.style.display = 'inline-block';
     addItemBtn.style.display = 'inline-block';
 
     const overviewMarkup = this.renderBillOverview(bill);
+    const unassignedWarningMarkup = this.renderUnassignedWarning(bill);
 
     // if (bill.items.length === 0) {
     //   summaryTable.innerHTML = `
@@ -3477,6 +3655,7 @@ export class BillCalculatorUI {
     if (bill.persons.length === 0) {
       summaryTable.innerHTML = `
         ${overviewMarkup}
+        ${unassignedWarningMarkup}
         ${this.renderEmptyWorkflowState(
           'Start by adding people',
           'This bill is ready, but there is nobody to split it with yet.',
@@ -3491,6 +3670,7 @@ export class BillCalculatorUI {
     if (bill.items.length === 0) {
       summaryTable.innerHTML = `
         ${overviewMarkup}
+        ${unassignedWarningMarkup}
         ${this.renderEmptyWorkflowState(
           'Add items to calculate totals',
           'People are ready. Add food, drinks, fees, or any shared cost to begin splitting.',
@@ -3512,6 +3692,7 @@ export class BillCalculatorUI {
 
     summaryTable.innerHTML = `
       ${overviewMarkup}
+      ${unassignedWarningMarkup}
       ${chargesMarkup}
       <div class="summary-table-container">
         <div class="summary-table-header-shell">
@@ -3520,13 +3701,14 @@ export class BillCalculatorUI {
           </div>
           <div class="summary-table-header-scroll">
             <div class="summary-table-header-track">
-              ${bill.items.map((item, index) => `
-                <div class="summary-table-header-cell" data-col-index="${index + 1}">
+              ${visibleItems.map((item, index) => `
+                <div class="summary-table-header-cell ${item.dividers.length === 0 ? 'is-unassigned' : ''}" data-col-index="${index + 1}">
                   <div class="summary-header-cell-content">
                     <div class="summary-header-meta">
                       ${item.name}<br>
                       <small style="font-weight: normal; color: var(--text-secondary);">($${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</small><br>
                       <small style="font-weight: normal; color: var(--text-secondary);">${item.dividers.length} ${item.dividers.length === 1 ? 'person' : 'people'}</small>
+                      ${item.dividers.length === 0 ? '<div class="summary-table-header-badge">Unassigned</div>' : ''}
                     </div>
                     <button class="item-delete-btn" onclick="billUI.removeItem('${item.id}')" title="Delete ${item.name}">
                       Delete
@@ -3534,7 +3716,7 @@ export class BillCalculatorUI {
                   </div>
                 </div>
               `).join('')}
-              <div class="summary-table-header-cell total-header-cell" data-col-index="${bill.items.length + 1}">Total</div>
+              <div class="summary-table-header-cell total-header-cell" data-col-index="${visibleItems.length + 1}">Total</div>
             </div>
           </div>
         </div>
@@ -3569,12 +3751,13 @@ export class BillCalculatorUI {
               <tbody>
                 ${bill.persons.map((person, index) => `
                   <tr data-row-index="person-${index}">
-                    ${bill.items.map((item, index) => {
+                    ${visibleItems.map((item, index) => {
                       const amount = matrix[person.id][item.id];
                       const isChecked = item.dividers.includes(person.id);
+                      const isUnassignedColumn = item.dividers.length === 0;
 
                       return `
-                        <td class="checkbox-cell" data-col-index="${index + 1}">
+                        <td class="checkbox-cell ${isUnassignedColumn ? 'is-unassigned-column' : ''}" data-col-index="${index + 1}">
                           <div class="checkbox-cell-content">
                             <input type="checkbox"
                                    class="divider-checkbox"
@@ -3588,14 +3771,14 @@ export class BillCalculatorUI {
                         </td>
                       `;
                     }).join('')}
-                    <td class="total-column" data-col-index="${bill.items.length + 1}">$${personTotals[person.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td class="total-column" data-col-index="${visibleItems.length + 1}">$${personTotals[person.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                 `).join('')}
                 <tr class="total-row" data-row-index="total">
-                  ${bill.items.map((item, index) => `
+                  ${visibleItems.map((item, index) => `
                     <td class="total-column" data-col-index="${index + 1}">$${itemTotals[item.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   `).join('')}
-                  <td class="total-column" data-col-index="${bill.items.length + 1}">$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td class="total-column" data-col-index="${visibleItems.length + 1}">$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
               </tbody>
             </table>
@@ -3860,7 +4043,32 @@ export class BillCalculatorUI {
     }
   }
 
+  private confirmExportWithUnassignedItems(): boolean {
+    if (!this.currentBillId) {
+      return false;
+    }
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    if (!bill) {
+      return false;
+    }
+
+    const { unassignedItemsTotal } = this.calculateBillChargeTotals(bill);
+    if (unassignedItemsTotal <= 0.009) {
+      return true;
+    }
+
+    const unassignedItemsCount = bill.items.filter(item => item.dividers.length === 0).length;
+    return confirm(
+      `This bill still has ${unassignedItemsCount} unassigned item(s) worth $${unassignedItemsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.\n\n` +
+      'Those items are excluded from the split total, charges, settlement, and export summary.\n\n' +
+      'Continue exporting anyway?'
+    );
+  }
+
   async exportTableToImage(): Promise<void> {
+    if (!this.confirmExportWithUnassignedItems()) return;
+
     const exportResult = await this.generateExportCanvas();
     if (!exportResult) return;
 
@@ -3883,6 +4091,8 @@ export class BillCalculatorUI {
   }
 
   async exportTableToPdf(): Promise<void> {
+    if (!this.confirmExportWithUnassignedItems()) return;
+
     const exportResult = await this.generateExportCanvas();
     if (!exportResult) return;
 
