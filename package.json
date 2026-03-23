@@ -4,7 +4,8 @@
   "description": "A TypeScript bill calculator application",
   "main": "dist/bundle.js",
   "scripts": {
-    "build": "tsc && webpack",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && webpack",
     "dev": "webpack serve --mode development",
     "start": "npm run build && http-server dist",
     "predeploy": "npm run build",
@@ -19,5 +20,9 @@
     "webpack": "^5.0.0",
     "webpack-cli": "^5.0.0",
     "webpack-dev-server": "^4.0.0"
+  },
+  "dependencies": {
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1"
   }
 }

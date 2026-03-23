@@ -86,12 +86,23 @@ export class BillCalculatorUI {
                 <div class="modal-form-hint">Who will be splitting the bill?</div>
                 <div class="modal-error-message" id="personNameError"></div>
               </div>
+              <div class="modal-form-group">
+                <label class="modal-label" for="modalPersonNames">Add Multiple People</label>
+                <textarea
+                  id="modalPersonNames"
+                  class="modal-input modal-textarea"
+                  placeholder="One name per line or separate with commas&#10;Alice&#10;Bob&#10;Charlie"
+                ></textarea>
+                <div class="modal-form-hint">Optional. Paste several names at once.</div>
+                <div class="modal-error-message" id="personBulkError"></div>
+                <div class="modal-preview" id="personPreview" style="display: none;"></div>
+              </div>
             </div>
             <div class="modal-footer">
               <button class="modal-btn modal-btn-secondary" onclick="billUI.closePersonModal()">
                 Cancel
               </button>
-              <button class="modal-btn modal-btn-primary" onclick="billUI.addPersonFromModal()" id="addPersonBtn">
+              <button class="modal-btn modal-btn-primary" onclick="billUI.addPersonFromModal()" id="addPersonSubmitBtn">
                 <span>Add Person</span>
               </button>
             </div>
@@ -132,12 +143,23 @@ export class BillCalculatorUI {
                 <div class="modal-form-hint">Enter the total cost of this item</div>
                 <div class="modal-error-message" id="itemPriceError"></div>
               </div>
+              <div class="modal-form-group">
+                <label class="modal-label" for="modalBulkItems">Add Multiple Items</label>
+                <textarea
+                  id="modalBulkItems"
+                  class="modal-input modal-textarea"
+                  placeholder="One item per line using Name, Price&#10;Pizza, 24.50&#10;Drinks, 9.00&#10;Dessert, 12.25"
+                ></textarea>
+                <div class="modal-form-hint">Optional. Paste multiple lines in the format Name, Price.</div>
+                <div class="modal-error-message" id="itemBulkError"></div>
+                <div class="modal-preview" id="itemPreview" style="display: none;"></div>
+              </div>
             </div>
             <div class="modal-footer">
               <button class="modal-btn modal-btn-secondary" onclick="billUI.closeItemModal()">
                 Cancel
               </button>
-              <button class="modal-btn modal-btn-primary" onclick="billUI.addItemFromModal()" id="addItemBtn">
+              <button class="modal-btn modal-btn-primary" onclick="billUI.addItemFromModal()" id="addItemSubmitBtn">
                 <span>Add Item</span>
               </button>
             </div>
@@ -663,6 +685,38 @@ export class BillCalculatorUI {
         .modal-input::placeholder {
           color: var(--text-secondary);
           font-style: italic;
+        }
+
+        .modal-textarea {
+          min-height: 110px;
+          resize: vertical;
+          font-family: inherit;
+          line-height: 1.5;
+        }
+
+        .modal-preview {
+          margin-top: 10px;
+          padding: 12px 14px;
+          border-radius: 10px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-light);
+          color: var(--text-primary);
+          font-size: 13px;
+          line-height: 1.5;
+        }
+
+        .modal-preview strong {
+          display: block;
+          margin-bottom: 4px;
+        }
+
+        .modal-preview-summary {
+          color: var(--btn-success);
+          font-weight: 600;
+        }
+
+        .modal-preview-warning {
+          color: var(--btn-danger);
         }
 
         .modal-input.error {
@@ -1217,7 +1271,57 @@ export class BillCalculatorUI {
     `;
         // Make this instance globally available
         window.billUI = this;
+        this.attachModalKeyboardSupport();
+        this.attachModalPreviewSupport();
         this.updateBillsList();
+    }
+    attachModalKeyboardSupport() {
+        document.addEventListener('keydown', (e) => {
+            const target = e.target;
+            const isTextareaTarget = target instanceof HTMLTextAreaElement;
+            const isModifiedEnter = (e.key === 'Enter' || e.key === 'NumpadEnter') && (e.metaKey || e.ctrlKey);
+            if (isModifiedEnter && this.isPersonModalOpen()) {
+                e.preventDefault();
+                this.addPersonFromModal();
+                return;
+            }
+            if (isModifiedEnter && this.isItemModalOpen()) {
+                e.preventDefault();
+                this.addItemFromModal();
+                return;
+            }
+            if ((e.key === 'Enter' || e.key === 'NumpadEnter') && isTextareaTarget) {
+                return;
+            }
+            if ((e.key === 'Enter' || e.key === 'NumpadEnter') && this.isPersonModalOpen()) {
+                this.addPersonFromModal();
+            }
+            if ((e.key === 'Enter' || e.key === 'NumpadEnter') && this.isItemModalOpen()) {
+                this.addItemFromModal();
+            }
+            if (e.key === 'Escape') {
+                this.closePersonModal();
+                this.closeItemModal();
+            }
+        });
+    }
+    attachModalPreviewSupport() {
+        const personNameInput = document.getElementById('modalPersonName');
+        const personBulkInput = document.getElementById('modalPersonNames');
+        const itemNameInput = document.getElementById('modalItemName');
+        const itemPriceInput = document.getElementById('modalItemPrice');
+        const itemBulkInput = document.getElementById('modalBulkItems');
+        personNameInput?.addEventListener('input', () => this.updatePersonPreview());
+        personBulkInput?.addEventListener('input', () => this.updatePersonPreview());
+        itemNameInput?.addEventListener('input', () => this.updateItemPreview());
+        itemPriceInput?.addEventListener('input', () => this.updateItemPreview());
+        itemBulkInput?.addEventListener('input', () => this.updateItemPreview());
+    }
+    isPersonModalOpen() {
+        return document.getElementById('personInputModal')?.style.display === 'flex';
+    }
+    isItemModalOpen() {
+        return document.getElementById('itemInputModal')?.style.display === 'flex';
     }
     toggleTheme() {
         this.isDarkTheme = !this.isDarkTheme;
@@ -1293,11 +1397,14 @@ export class BillCalculatorUI {
     showPersonModal() {
         const modal = document.getElementById('personInputModal');
         const input = document.getElementById('modalPersonName');
+        const bulkInput = document.getElementById('modalPersonNames');
         modal.style.display = 'flex';
         modal.setAttribute('aria-hidden', 'false');
         // Clear previous values and errors
         input.value = '';
+        bulkInput.value = '';
         this.clearModalErrors('person');
+        this.updatePersonPreview();
         // Focus with slight delay for animation
         setTimeout(() => {
             input.focus();
@@ -1312,7 +1419,9 @@ export class BillCalculatorUI {
         modal.setAttribute('aria-hidden', 'true');
         // Clear form
         document.getElementById('modalPersonName').value = '';
+        document.getElementById('modalPersonNames').value = '';
         this.clearModalErrors('person');
+        this.updatePersonPreview();
         // Restore body scroll
         document.body.style.overflow = '';
     }
@@ -1320,50 +1429,60 @@ export class BillCalculatorUI {
         if (!this.currentBillId)
             return;
         const personNameInput = document.getElementById('modalPersonName');
-        const addButton = document.getElementById('addPersonBtn');
-        const personName = personNameInput.value.trim();
+        const bulkPersonInput = document.getElementById('modalPersonNames');
+        const addButton = document.getElementById('addPersonSubmitBtn');
+        const personEntries = this.parsePersonEntries(personNameInput.value, bulkPersonInput.value);
         // Clear previous errors
         this.clearModalErrors('person');
-        // Validation
-        if (!personName) {
-            this.showModalError('person', 'personName', 'Please enter a person name');
+        if (personEntries.names.length === 0) {
+            this.showModalError('person', 'personName', 'Enter one name or paste multiple names');
             personNameInput.focus();
             return;
         }
-        if (personName.length < 2) {
-            this.showModalError('person', 'personName', 'Name must be at least 2 characters');
-            personNameInput.focus();
+        if (personEntries.invalidNames.length > 0) {
+            this.showModalError('person', 'personBulk', `Names cannot be empty: ${personEntries.invalidNames.join(', ')}`);
+            bulkPersonInput.focus();
             return;
         }
-        // Check for duplicate names
         const bill = this.calculator.getBill(this.currentBillId);
-        if (bill?.persons.some(p => p.name.toLowerCase() === personName.toLowerCase())) {
-            this.showModalError('person', 'personName', 'This person is already added');
-            personNameInput.focus();
+        const existingNames = personEntries.names.filter(name => bill?.persons.some(person => person.name.toLowerCase() === name.toLowerCase()));
+        if (personEntries.duplicateNames.length > 0) {
+            this.showModalError('person', 'personBulk', `Duplicate names in this batch: ${personEntries.duplicateNames.join(', ')}`);
+            bulkPersonInput.focus();
+            return;
+        }
+        if (existingNames.length > 0) {
+            this.showModalError('person', 'personBulk', `Already added: ${existingNames.join(', ')}`);
+            if (bulkPersonInput.value.trim()) {
+                bulkPersonInput.focus();
+            }
+            else {
+                personNameInput.focus();
+            }
             return;
         }
         // Show loading state
         addButton.classList.add('loading');
         addButton.disabled = true;
-        // Simulate API call delay (remove in production)
-        // setTimeout(() => {
-        this.calculator.addPerson(this.currentBillId, personName);
+        this.calculator.addPeople(this.currentBillId, personEntries.names);
         this.closePersonModal();
         this.updateSummaryTable();
         // Remove loading state
         addButton.classList.remove('loading');
         addButton.disabled = false;
-        // }, 300);
     }
     showItemModal() {
         const modal = document.getElementById('itemInputModal');
         const nameInput = document.getElementById('modalItemName');
+        const bulkInput = document.getElementById('modalBulkItems');
         modal.style.display = 'flex';
         modal.setAttribute('aria-hidden', 'false');
         // Clear previous values and errors
         nameInput.value = '';
         document.getElementById('modalItemPrice').value = '';
+        bulkInput.value = '';
         this.clearModalErrors('item');
+        this.updateItemPreview();
         // Focus with slight delay for animation
         setTimeout(() => {
             nameInput.focus();
@@ -1379,7 +1498,9 @@ export class BillCalculatorUI {
         // Clear form
         document.getElementById('modalItemName').value = '';
         document.getElementById('modalItemPrice').value = '';
+        document.getElementById('modalBulkItems').value = '';
         this.clearModalErrors('item');
+        this.updateItemPreview();
         // Restore body scroll
         document.body.style.overflow = '';
     }
@@ -1388,67 +1509,222 @@ export class BillCalculatorUI {
             return;
         const itemNameInput = document.getElementById('modalItemName');
         const itemPriceInput = document.getElementById('modalItemPrice');
-        const addButton = document.getElementById('addItemBtn');
+        const bulkItemsInput = document.getElementById('modalBulkItems');
+        const addButton = document.getElementById('addItemSubmitBtn');
+        const itemEntries = [];
         const itemName = itemNameInput.value.trim();
         const itemPrice = parseFloat(itemPriceInput.value);
+        const hasSingleInput = itemName.length > 0 || itemPriceInput.value.trim().length > 0;
+        const bulkResult = this.parseBulkItemEntries(bulkItemsInput.value);
         // Clear previous errors
         this.clearModalErrors('item');
         let hasErrors = false;
-        // Validation
-        if (!itemName) {
-            this.showModalError('item', 'itemName', 'Please enter an item name');
+        if (!hasSingleInput && bulkResult.items.length === 0) {
+            this.showModalError('item', 'itemName', 'Enter one item or paste multiple lines');
+            itemNameInput.focus();
+            return;
+        }
+        if (hasSingleInput) {
+            if (!itemName) {
+                this.showModalError('item', 'itemName', 'Please enter an item name');
+                hasErrors = true;
+            }
+            else if (itemName.length < 1) {
+                this.showModalError('item', 'itemName', 'Item name cannot be empty');
+                hasErrors = true;
+            }
+            if (!itemPriceInput.value || isNaN(itemPrice)) {
+                this.showModalError('item', 'itemPrice', 'Please enter a valid price');
+                hasErrors = true;
+            }
+            else if (itemPrice <= 0) {
+                this.showModalError('item', 'itemPrice', 'Price must be greater than 0');
+                hasErrors = true;
+            }
+            else if (itemPrice > 1000000.00) {
+                this.showModalError('item', 'itemPrice', 'Price cannot exceed $1,000,000');
+                hasErrors = true;
+            }
+            if (!hasErrors) {
+                itemEntries.push({ name: itemName, price: itemPrice });
+            }
+        }
+        if (bulkResult.invalidLines.length > 0) {
+            this.showModalError('item', 'itemBulk', `Invalid lines: ${bulkResult.invalidLines.join(' | ')}`);
             hasErrors = true;
         }
-        else if (itemName.length < 2) {
-            this.showModalError('item', 'itemName', 'Item name must be at least 2 characters');
-            hasErrors = true;
-        }
-        if (!itemPriceInput.value || isNaN(itemPrice)) {
-            this.showModalError('item', 'itemPrice', 'Please enter a valid price');
-            hasErrors = true;
-        }
-        else if (itemPrice <= 0) {
-            this.showModalError('item', 'itemPrice', 'Price must be greater than 0');
-            hasErrors = true;
-        }
-        else if (itemPrice > 1000000.00) {
-            this.showModalError('item', 'itemPrice', 'Price cannot exceed $1,000,000');
-            hasErrors = true;
-        }
+        itemEntries.push(...bulkResult.items);
         if (hasErrors) {
-            if (!itemName)
+            if (document.getElementById('itemNameError').textContent) {
                 itemNameInput.focus();
-            else if (!itemPriceInput.value || isNaN(itemPrice))
+            }
+            else if (document.getElementById('itemPriceError').textContent) {
                 itemPriceInput.focus();
+            }
+            else {
+                bulkItemsInput.focus();
+            }
             return;
         }
         // Show loading state
         addButton.classList.add('loading');
         addButton.disabled = true;
-        // Simulate API call delay (remove in production)
-        // setTimeout(() => {
-        this.calculator.addItem(this.currentBillId, itemName, itemPrice);
+        this.calculator.addItems(this.currentBillId, itemEntries);
         this.closeItemModal();
         this.updateSummaryTable();
         // Remove loading state
         addButton.classList.remove('loading');
         addButton.disabled = false;
-        // }, 300);
+    }
+    parsePersonEntries(singleValue, bulkValue) {
+        const rawEntries = [
+            ...singleValue.split(','),
+            ...bulkValue.split(/[\n,]+/)
+        ];
+        const names = [];
+        const invalidNames = [];
+        const duplicateNames = [];
+        const seenNames = new Set();
+        rawEntries.forEach(rawEntry => {
+            const normalizedName = rawEntry.trim().replace(/\s+/g, ' ');
+            if (!normalizedName)
+                return;
+            if (normalizedName.length < 1) {
+                invalidNames.push(normalizedName);
+                return;
+            }
+            const duplicateKey = normalizedName.toLowerCase();
+            if (seenNames.has(duplicateKey)) {
+                duplicateNames.push(normalizedName);
+                return;
+            }
+            seenNames.add(duplicateKey);
+            names.push(normalizedName);
+        });
+        return { names, invalidNames, duplicateNames };
+    }
+    parseBulkItemEntries(rawValue) {
+        const items = [];
+        const invalidLines = [];
+        rawValue
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0)
+            .forEach(line => {
+            const separatorIndex = line.lastIndexOf(',');
+            if (separatorIndex === -1) {
+                invalidLines.push(line);
+                return;
+            }
+            const parsedName = line.slice(0, separatorIndex).trim().replace(/\s+/g, ' ');
+            const priceText = line.slice(separatorIndex + 1).trim().replace(/^\$/, '');
+            const parsedPrice = parseFloat(priceText);
+            if (!parsedName || parsedName.length < 1 || !Number.isFinite(parsedPrice) || parsedPrice <= 0 || parsedPrice > 1000000.00) {
+                invalidLines.push(line);
+                return;
+            }
+            items.push({ name: parsedName, price: parsedPrice });
+        });
+        return { items, invalidLines };
+    }
+    updatePersonPreview() {
+        const previewElement = document.getElementById('personPreview');
+        const personNameInput = document.getElementById('modalPersonName');
+        const bulkPersonInput = document.getElementById('modalPersonNames');
+        if (!previewElement || !personNameInput || !bulkPersonInput)
+            return;
+        const personEntries = this.parsePersonEntries(personNameInput.value, bulkPersonInput.value);
+        const bill = this.currentBillId ? this.calculator.getBill(this.currentBillId) : undefined;
+        const existingNames = personEntries.names.filter(name => bill?.persons.some(person => person.name.toLowerCase() === name.toLowerCase()));
+        if (!personNameInput.value.trim() && !bulkPersonInput.value.trim()) {
+            previewElement.style.display = 'none';
+            previewElement.innerHTML = '';
+            return;
+        }
+        const previewLines = [`<strong>Preview</strong>`];
+        previewLines.push(`<div class="modal-preview-summary">Ready to add: ${Math.max(personEntries.names.length - existingNames.length, 0)} person(s)</div>`);
+        if (personEntries.invalidNames.length > 0) {
+            previewLines.push(`<div class="modal-preview-warning">Empty names are not allowed: ${personEntries.invalidNames.join(', ')}</div>`);
+        }
+        if (personEntries.duplicateNames.length > 0) {
+            previewLines.push(`<div class="modal-preview-warning">Duplicate in batch: ${personEntries.duplicateNames.join(', ')}</div>`);
+        }
+        if (existingNames.length > 0) {
+            previewLines.push(`<div class="modal-preview-warning">Already in bill: ${existingNames.join(', ')}</div>`);
+        }
+        previewElement.innerHTML = previewLines.join('');
+        previewElement.style.display = 'block';
+    }
+    updateItemPreview() {
+        const previewElement = document.getElementById('itemPreview');
+        const itemNameInput = document.getElementById('modalItemName');
+        const itemPriceInput = document.getElementById('modalItemPrice');
+        const bulkItemsInput = document.getElementById('modalBulkItems');
+        if (!previewElement || !itemNameInput || !itemPriceInput || !bulkItemsInput)
+            return;
+        const bulkResult = this.parseBulkItemEntries(bulkItemsInput.value);
+        const itemEntriesCount = bulkResult.items.length;
+        const hasSingleInput = itemNameInput.value.trim().length > 0 || itemPriceInput.value.trim().length > 0;
+        const singleItemIssues = [];
+        let singleItemReady = 0;
+        if (hasSingleInput) {
+            const itemName = itemNameInput.value.trim();
+            const itemPrice = parseFloat(itemPriceInput.value);
+            if (!itemName) {
+                singleItemIssues.push('Single item is missing a name');
+            }
+            else if (itemName.length < 1) {
+                singleItemIssues.push('Single item name cannot be empty');
+            }
+            if (!itemPriceInput.value || isNaN(itemPrice)) {
+                singleItemIssues.push('Single item is missing a valid price');
+            }
+            else if (itemPrice <= 0 || itemPrice > 1000000.00) {
+                singleItemIssues.push(`Single item price is out of range: ${itemPriceInput.value}`);
+            }
+            if (singleItemIssues.length === 0) {
+                singleItemReady = 1;
+            }
+        }
+        if (!hasSingleInput && !bulkItemsInput.value.trim()) {
+            previewElement.style.display = 'none';
+            previewElement.innerHTML = '';
+            return;
+        }
+        const previewLines = [`<strong>Preview</strong>`];
+        previewLines.push(`<div class="modal-preview-summary">Ready to add: ${singleItemReady + itemEntriesCount} item(s)</div>`);
+        if (singleItemIssues.length > 0) {
+            previewLines.push(`<div class="modal-preview-warning">${singleItemIssues.join(' | ')}</div>`);
+        }
+        if (bulkResult.invalidLines.length > 0) {
+            previewLines.push(`<div class="modal-preview-warning">Invalid rows: ${bulkResult.invalidLines.join(' | ')}</div>`);
+        }
+        previewElement.innerHTML = previewLines.join('');
+        previewElement.style.display = 'block';
     }
     clearModalErrors(modalType) {
         if (modalType === 'person') {
             const errorElement = document.getElementById('personNameError');
+            const bulkErrorElement = document.getElementById('personBulkError');
             if (errorElement) {
                 errorElement.style.display = 'none';
                 errorElement.textContent = '';
             }
+            if (bulkErrorElement) {
+                bulkErrorElement.style.display = 'none';
+                bulkErrorElement.textContent = '';
+            }
             const input = document.getElementById('modalPersonName');
+            const bulkInput = document.getElementById('modalPersonNames');
             if (input)
                 input.classList.remove('error');
+            if (bulkInput)
+                bulkInput.classList.remove('error');
         }
         else {
             const nameError = document.getElementById('itemNameError');
             const priceError = document.getElementById('itemPriceError');
+            const bulkError = document.getElementById('itemBulkError');
             if (nameError) {
                 nameError.style.display = 'none';
                 nameError.textContent = '';
@@ -1457,18 +1733,26 @@ export class BillCalculatorUI {
                 priceError.style.display = 'none';
                 priceError.textContent = '';
             }
+            if (bulkError) {
+                bulkError.style.display = 'none';
+                bulkError.textContent = '';
+            }
             const nameInput = document.getElementById('modalItemName');
             const priceInput = document.getElementById('modalItemPrice');
+            const bulkInput = document.getElementById('modalBulkItems');
             if (nameInput)
                 nameInput.classList.remove('error');
             if (priceInput)
                 priceInput.classList.remove('error');
+            if (bulkInput)
+                bulkInput.classList.remove('error');
         }
     }
     showModalError(modalType, field, message) {
         if (modalType === 'person') {
-            const errorElement = document.getElementById('personNameError');
-            const input = document.getElementById('modalPersonName');
+            const isBulkField = field === 'personBulk';
+            const errorElement = document.getElementById(isBulkField ? 'personBulkError' : 'personNameError');
+            const input = document.getElementById(isBulkField ? 'modalPersonNames' : 'modalPersonName');
             if (errorElement) {
                 errorElement.textContent = message;
                 errorElement.style.display = 'block';
@@ -1477,8 +1761,10 @@ export class BillCalculatorUI {
                 input.classList.add('error');
         }
         else {
-            const errorElement = document.getElementById(field === 'itemName' ? 'itemNameError' : 'itemPriceError');
-            const input = document.getElementById(field === 'itemName' ? 'modalItemName' : 'modalItemPrice');
+            const errorElementId = field === 'itemName' ? 'itemNameError' : field === 'itemPrice' ? 'itemPriceError' : 'itemBulkError';
+            const inputId = field === 'itemName' ? 'modalItemName' : field === 'itemPrice' ? 'modalItemPrice' : 'modalBulkItems';
+            const errorElement = document.getElementById(errorElementId);
+            const input = document.getElementById(inputId);
             if (errorElement) {
                 errorElement.textContent = message;
                 errorElement.style.display = 'block';
@@ -1687,19 +1973,6 @@ export class BillCalculatorUI {
         </table>
       </div>
     `;
-        // Add keyboard support for modals
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && document.getElementById('personInputModal').style.display === 'flex') {
-                this.addPersonFromModal();
-            }
-            if (e.key === 'Enter' && document.getElementById('itemInputModal').style.display === 'flex') {
-                this.addItemFromModal();
-            }
-            if (e.key === 'Escape') {
-                this.closePersonModal();
-                this.closeItemModal();
-            }
-        });
     }
     exportTableToImage() {
         if (!this.currentBillId)

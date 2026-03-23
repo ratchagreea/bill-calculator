@@ -35,28 +35,55 @@ export class BillCalculator {
         const bill = this.getBill(billId);
         if (!bill)
             return false;
+        const normalizedName = this.normalizeName(name);
+        if (!normalizedName)
+            return false;
+        const personExists = bill.persons.some(person => person.name.toLowerCase() === normalizedName.toLowerCase());
+        if (personExists)
+            return false;
         const personId = this.generateId();
         const newPerson = {
             id: personId,
-            name
+            name: normalizedName
         };
         bill.persons.push(newPerson);
         return true;
+    }
+    addPeople(billId, names) {
+        let addedCount = 0;
+        names.forEach(name => {
+            if (this.addPerson(billId, name)) {
+                addedCount += 1;
+            }
+        });
+        return addedCount;
     }
     // Add item to a bill
     addItem(billId, name, price) {
         const bill = this.getBill(billId);
         if (!bill)
             return false;
+        const normalizedName = this.normalizeName(name);
+        if (!normalizedName || !Number.isFinite(price) || price <= 0)
+            return false;
         const itemId = this.generateId();
         const newItem = {
             id: itemId,
-            name,
+            name: normalizedName,
             price,
             dividers: []
         };
         bill.items.push(newItem);
         return true;
+    }
+    addItems(billId, items) {
+        let addedCount = 0;
+        items.forEach(item => {
+            if (this.addItem(billId, item.name, item.price)) {
+                addedCount += 1;
+            }
+        });
+        return addedCount;
     }
     // Toggle person as divider for an item
     togglePersonAsDivider(billId, itemId, personId) {
@@ -139,6 +166,9 @@ export class BillCalculator {
     }
     generateId() {
         return Math.random().toString(36).substr(2, 9);
+    }
+    normalizeName(value) {
+        return value.trim().replace(/\s+/g, ' ');
     }
 }
 //# sourceMappingURL=BillCalculator.js.map

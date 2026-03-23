@@ -4,6 +4,10 @@ export declare class BillCalculatorUI {
     private isDarkTheme;
     constructor();
     private initializeUI;
+    private attachModalKeyboardSupport;
+    private attachModalPreviewSupport;
+    private isPersonModalOpen;
+    private isItemModalOpen;
     toggleTheme(): void;
     private applyTheme;
     createNewBill(): void;
@@ -16,6 +20,10 @@ export declare class BillCalculatorUI {
     showItemModal(): void;
     closeItemModal(): void;
     addItemFromModal(): void;
+    private parsePersonEntries;
+    private parseBulkItemEntries;
+    private updatePersonPreview;
+    private updateItemPreview;
     private clearModalErrors;
     private showModalError;
     addItem(): void;
