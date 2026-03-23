@@ -3,6 +3,40 @@ import { Bill, Person, Item, PersonSummary } from './types';
 export class BillCalculator {
   private bills: Bill[] = [];
 
+  loadBills(bills: Bill[]): void {
+    this.bills = bills.map(bill => ({
+      id: bill.id,
+      name: bill.name,
+      persons: bill.persons.map(person => ({
+        id: person.id,
+        name: person.name
+      })),
+      items: bill.items.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        dividers: [...item.dividers]
+      }))
+    }));
+  }
+
+  exportBills(): Bill[] {
+    return this.bills.map(bill => ({
+      id: bill.id,
+      name: bill.name,
+      persons: bill.persons.map(person => ({
+        id: person.id,
+        name: person.name
+      })),
+      items: bill.items.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        dividers: [...item.dividers]
+      }))
+    }));
+  }
+
   // Create a new bill
   createBill(name: string): string {
     const billId = this.generateId();

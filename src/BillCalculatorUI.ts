@@ -1,11 +1,18 @@
 import { BillCalculator } from './BillCalculator';
 import { Bill, PersonSummary } from './types';
 
+interface SavedDraftState {
+  version: 1;
+  currentBillId: string | null;
+  bills: Bill[];
+}
+
 export class BillCalculatorUI {
   private calculator: BillCalculator;
   private currentBillId: string | null = null;
   private isDarkTheme: boolean;
   private toastTimeoutId: number | null = null;
+  private readonly draftStorageKey = 'billCalculatorDraft';
 
   constructor() {
     this.calculator = new BillCalculator();
@@ -35,6 +42,9 @@ export class BillCalculatorUI {
           <div class="input-group">
             <input type="text" id="billName" class="input-field" placeholder="Enter bill name" maxlength="100">
             <button onclick="billUI.createNewBill()" class="btn btn-primary">Create Bill</button>
+          </div>
+          <div class="bill-management-actions">
+            <button id="clearDraftBtn" onclick="billUI.clearSavedDraft()" class="btn btn-secondary" disabled>Clear Saved Draft</button>
           </div>
           <div id="billsList"></div>
         </div>
@@ -346,6 +356,12 @@ export class BillCalculatorUI {
           margin-bottom: 15px;
         }
 
+        .bill-management-actions {
+          display: flex;
+          justify-content: flex-end;
+          margin-bottom: 15px;
+        }
+
         .input-field {
           flex: 1;
           padding: 12px 16px;
@@ -374,6 +390,13 @@ export class BillCalculatorUI {
           transition: all 0.2s ease;
           text-transform: uppercase;
           letter-spacing: 0.5px;
+        }
+
+        .btn:disabled {
+          cursor: not-allowed;
+          opacity: 0.6;
+          transform: none;
+          box-shadow: none;
         }
 
         .btn-primary {
@@ -411,6 +434,11 @@ export class BillCalculatorUI {
         .btn-secondary:hover { 
           background-color: var(--btn-secondary-hover); 
           transform: translateY(-2px);
+        }
+
+        .btn-secondary:disabled:hover {
+          background-color: var(--btn-secondary);
+          transform: none;
         }
 
         .subsection { 
@@ -1578,6 +1606,14 @@ export class BillCalculatorUI {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
 
+          .bill-management-actions {
+            justify-content: stretch;
+          }
+
+          .bill-management-actions .btn {
+            width: 100%;
+          }
+
           .mobile-summary-grid {
             display: grid;
           }
@@ -1674,6 +1710,98 @@ export class BillCalculatorUI {
     this.attachModalPreviewSupport();
     this.attachSummaryTableResizeSupport();
     this.updateBillsList();
+    this.updateDraftActionState();
+    this.restoreDraftState();
+  }
+
+  private updateDraftActionState(): void {
+    const clearDraftButton = document.getElementById('clearDraftBtn') as HTMLButtonElement | null;
+    if (!clearDraftButton) {
+      return;
+    }
+
+    clearDraftButton.disabled = !localStorage.getItem(this.draftStorageKey);
+  }
+
+  private resetCurrentBillView(): void {
+    this.currentBillId = null;
+    document.getElementById('currentBillSection')!.style.display = 'none';
+    document.getElementById('currentBillTitle')!.textContent = 'Current Bill';
+    document.getElementById('summaryTable')!.innerHTML = '';
+    document.body.style.overflow = '';
+    this.closePersonModal();
+    this.closeItemModal();
+  }
+
+  private saveDraftState(): void {
+    try {
+      const draftState: SavedDraftState = {
+        version: 1,
+        currentBillId: this.currentBillId,
+        bills: this.calculator.exportBills()
+      };
+
+      localStorage.setItem(this.draftStorageKey, JSON.stringify(draftState));
+      this.updateDraftActionState();
+    } catch (error) {
+      console.error('Failed to save draft state:', error);
+    }
+  }
+
+  private restoreDraftState(): void {
+    const rawDraftState = localStorage.getItem(this.draftStorageKey);
+    if (!rawDraftState) {
+      this.updateDraftActionState();
+      return;
+    }
+
+    try {
+      const parsedDraft = JSON.parse(rawDraftState) as Partial<SavedDraftState>;
+      const bills = Array.isArray(parsedDraft.bills) ? parsedDraft.bills : [];
+      this.calculator.loadBills(bills);
+      this.updateBillsList();
+
+      if (bills.length === 0) {
+        this.currentBillId = null;
+        return;
+      }
+
+      const requestedBillId = typeof parsedDraft.currentBillId === 'string' ? parsedDraft.currentBillId : null;
+      const hasRequestedBill = requestedBillId ? this.calculator.getBill(requestedBillId) : undefined;
+      const selectedBillId = hasRequestedBill?.id || bills[0]?.id || null;
+
+      if (selectedBillId) {
+        this.selectBill(selectedBillId);
+      }
+
+      this.updateDraftActionState();
+      this.showToast('Draft restored');
+    } catch (error) {
+      console.error('Failed to restore draft state:', error);
+      localStorage.removeItem(this.draftStorageKey);
+      this.updateDraftActionState();
+    }
+  }
+
+  clearSavedDraft(): void {
+    const hasDraft = !!localStorage.getItem(this.draftStorageKey);
+    if (!hasDraft) {
+      this.showToast('No saved draft to clear');
+      this.updateDraftActionState();
+      return;
+    }
+
+    const confirmed = confirm('Clear the saved draft and remove all currently restored bill data from this browser?\n\nThis keeps your theme preference, but removes saved bills and the last selected bill.');
+    if (!confirmed) {
+      return;
+    }
+
+    localStorage.removeItem(this.draftStorageKey);
+    this.calculator.loadBills([]);
+    this.resetCurrentBillView();
+    this.updateBillsList();
+    this.updateDraftActionState();
+    this.showToast('Saved draft cleared');
   }
 
   private attachModalKeyboardSupport(): void {
@@ -2129,6 +2257,7 @@ export class BillCalculatorUI {
     billNameInput.value = '';
     this.updateBillsList();
     this.selectBill(billId);
+    this.saveDraftState();
     this.showToast(`Bill "${billName}" created`);
   }
 
@@ -2142,6 +2271,7 @@ export class BillCalculatorUI {
     
     this.updateBillsList();
     this.updateSummaryTable();
+    this.saveDraftState();
   }
 
   deleteBill(billId: string): void {
@@ -2154,10 +2284,10 @@ export class BillCalculatorUI {
       const success = this.calculator.deleteBill(billId);
       if (success) {
         if (this.currentBillId === billId) {
-          this.currentBillId = null;
-          document.getElementById('currentBillSection')!.style.display = 'none';
+          this.resetCurrentBillView();
         }
         this.updateBillsList();
+        this.saveDraftState();
       } else {
         alert('Failed to delete bill. Please try again.');
       }
@@ -2264,6 +2394,7 @@ export class BillCalculatorUI {
     this.calculator.addPeople(this.currentBillId, personEntries.names);
     this.closePersonModal();
     this.updateSummaryTable();
+    this.saveDraftState();
     this.showToast(`Added ${personEntries.names.length} ${personEntries.names.length === 1 ? 'person' : 'people'}`);
     
     // Remove loading state
@@ -2391,6 +2522,7 @@ export class BillCalculatorUI {
     this.calculator.addItems(this.currentBillId, itemEntries);
     this.closeItemModal();
     this.updateSummaryTable();
+    this.saveDraftState();
     this.showToast(`Added ${itemEntries.length} ${itemEntries.length === 1 ? 'item' : 'items'}`);
     
     // Remove loading state
@@ -2645,6 +2777,7 @@ export class BillCalculatorUI {
 
     this.calculator.togglePersonAsDivider(this.currentBillId, itemId, personId);
     this.updateSummaryTable();
+    this.saveDraftState();
   }
 
   removePerson(personId: string): void {
@@ -2656,6 +2789,7 @@ export class BillCalculatorUI {
     if (confirm(`Remove "${person?.name}" from this bill?`)) {
       this.calculator.removePerson(this.currentBillId, personId);
       this.updateSummaryTable();
+      this.saveDraftState();
       this.showToast(`Removed ${person?.name || 'person'}`);
     }
   }
@@ -2669,6 +2803,7 @@ export class BillCalculatorUI {
     if (confirm(`Remove "${item?.name}" ($${item?.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) from this bill?`)) {
       this.calculator.removeItem(this.currentBillId, itemId);
       this.updateSummaryTable();
+      this.saveDraftState();
       this.showToast(`Removed ${item?.name || 'item'}`);
     }
   }
