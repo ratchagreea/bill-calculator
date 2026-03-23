@@ -16,7 +16,8 @@ export class BillCalculator {
         name: item.name,
         price: item.price,
         dividers: [...item.dividers]
-      }))
+      })),
+      settlementRecipientId: bill.settlementRecipientId ?? null
     }));
   }
 
@@ -33,7 +34,8 @@ export class BillCalculator {
         name: item.name,
         price: item.price,
         dividers: [...item.dividers]
-      }))
+      })),
+      settlementRecipientId: bill.settlementRecipientId
     }));
   }
 
@@ -44,7 +46,8 @@ export class BillCalculator {
       id: billId,
       name,
       persons: [],
-      items: []
+      items: [],
+      settlementRecipientId: null
     };
     this.bills.push(newBill);
     return billId;
@@ -186,6 +189,22 @@ export class BillCalculator {
     return summaries;
   }
 
+  setSettlementRecipient(billId: string, personId: string | null): boolean {
+    const bill = this.getBill(billId);
+    if (!bill) return false;
+
+    if (personId === null) {
+      bill.settlementRecipientId = null;
+      return true;
+    }
+
+    const personExists = bill.persons.some(person => person.id === personId);
+    if (!personExists) return false;
+
+    bill.settlementRecipientId = personId;
+    return true;
+  }
+
   // Remove person from bill
   removePerson(billId: string, personId: string): boolean {
     const bill = this.getBill(billId);
@@ -204,6 +223,9 @@ export class BillCalculator {
 
     // Remove person from bill
     bill.persons.splice(personIndex, 1);
+    if (bill.settlementRecipientId === personId) {
+      bill.settlementRecipientId = bill.persons[0]?.id ?? null;
+    }
     return true;
   }
 

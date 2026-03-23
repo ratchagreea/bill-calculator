@@ -15,6 +15,7 @@ export interface Bill {
   name: string;
   persons: Person[];
   items: Item[];
+  settlementRecipientId: string | null;
 }
 
 export interface PersonSummary {

@@ -520,6 +520,106 @@ export class BillCalculatorUI {
           font-size: 12px;
         }
 
+        .settlement-card {
+          margin-bottom: 18px;
+          padding: 18px;
+          border-radius: 14px;
+          background: linear-gradient(180deg, var(--bg-primary), var(--bg-secondary));
+          border: 1px solid var(--border-color);
+          box-shadow: 0 10px 18px var(--shadow);
+        }
+
+        .settlement-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 16px;
+          margin-bottom: 14px;
+        }
+
+        .settlement-title {
+          margin: 0;
+          color: var(--text-primary);
+          font-size: 20px;
+        }
+
+        .settlement-subtext {
+          margin: 6px 0 0 0;
+          color: var(--text-secondary);
+          font-size: 13px;
+          line-height: 1.5;
+        }
+
+        .settlement-controls {
+          min-width: 240px;
+        }
+
+        .settlement-select {
+          width: 100%;
+          padding: 10px 12px;
+          border: 2px solid var(--border-color);
+          border-radius: 10px;
+          background: var(--bg-primary);
+          color: var(--text-primary);
+          font-size: 14px;
+          font-weight: 600;
+        }
+
+        .settlement-summary {
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin-bottom: 14px;
+        }
+
+        .settlement-stat {
+          padding: 10px 12px;
+          border-radius: 10px;
+          background: var(--bg-primary);
+          border: 1px solid var(--border-light);
+          color: var(--text-tertiary);
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        .settlement-list {
+          display: grid;
+          gap: 10px;
+        }
+
+        .settlement-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 14px;
+          padding: 12px 14px;
+          border-radius: 12px;
+          background: var(--bg-primary);
+          border: 1px solid var(--border-light);
+        }
+
+        .settlement-route {
+          color: var(--text-primary);
+          font-weight: 700;
+          line-height: 1.4;
+        }
+
+        .settlement-amount {
+          color: var(--btn-success);
+          font-size: 18px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+
+        .settlement-empty {
+          padding: 14px;
+          border-radius: 12px;
+          background: var(--bg-primary);
+          border: 1px dashed var(--border-color);
+          color: var(--text-secondary);
+          line-height: 1.5;
+        }
+
         .secondary-btn {
           background-color: var(--btn-secondary) !important;
         }
@@ -1613,6 +1713,20 @@ export class BillCalculatorUI {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
 
+          .settlement-header {
+            flex-direction: column;
+          }
+
+          .settlement-controls {
+            min-width: 0;
+            width: 100%;
+          }
+
+          .settlement-item {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+
           .bill-management-actions {
             justify-content: stretch;
           }
@@ -2099,6 +2213,68 @@ export class BillCalculatorUI {
     `;
   }
 
+  private renderSettlementCard(bill: Bill, personTotals: { [personId: string]: number }): string {
+    const settlementRecipient = bill.settlementRecipientId
+      ? bill.persons.find(person => person.id === bill.settlementRecipientId) ?? null
+      : null;
+    const totalTracked = Object.values(personTotals).reduce((sum, total) => sum + total, 0);
+    const settlementSteps = settlementRecipient
+      ? bill.persons
+          .filter(person => person.id !== settlementRecipient.id)
+          .map(person => ({
+            fromName: person.name,
+            toName: settlementRecipient.name,
+            amount: personTotals[person.id] ?? 0
+          }))
+          .filter(step => step.amount > 0.009)
+          .sort((left, right) => right.amount - left.amount)
+      : [];
+    const collectAmount = settlementSteps.reduce((sum, step) => sum + step.amount, 0);
+
+    let settlementBody = '<div class="settlement-empty">Select who paid the bill upfront to generate payback instructions.</div>';
+
+    if (totalTracked <= 0.009) {
+      settlementBody = '<div class="settlement-empty">Assign at least one person to an item before settlement instructions can be generated.</div>';
+    } else if (settlementRecipient && settlementSteps.length === 0) {
+      settlementBody = `<div class="settlement-empty">No one else needs to reimburse ${settlementRecipient.name}. Everyone else currently owes $0.00.</div>`;
+    } else if (settlementSteps.length > 0) {
+      settlementBody = `
+        <div class="settlement-summary">
+          <div class="settlement-stat">Collector: ${settlementRecipient?.name}</div>
+          <div class="settlement-stat">To collect: $${collectAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        </div>
+        <div class="settlement-list">
+          ${settlementSteps.map(step => `
+            <div class="settlement-item">
+              <div class="settlement-route">${step.fromName} pays ${step.toName}</div>
+              <div class="settlement-amount">$${step.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="settlement-card">
+        <div class="settlement-header">
+          <div>
+            <h4 class="settlement-title">Settlement Mode</h4>
+            <p class="settlement-subtext">Pick who paid upfront, then use the suggested payback instructions below.</p>
+          </div>
+          <div class="settlement-controls">
+            <select class="settlement-select" onchange="billUI.updateSettlementRecipient(this.value)">
+              <option value="">Select collector</option>
+              ${bill.persons.map(person => `
+                <option value="${person.id}" ${person.id === bill.settlementRecipientId ? 'selected' : ''}>${person.name}</option>
+              `).join('')}
+            </select>
+          </div>
+        </div>
+        ${settlementBody}
+      </div>
+    `;
+  }
+
   private renderMobileSummaryCards(bill: Bill, personTotals: { [personId: string]: number }): string {
     return `
       <div class="mobile-summary-grid">
@@ -2349,6 +2525,22 @@ export class BillCalculatorUI {
       if (themeIcon) themeIcon.textContent = '🌙';
       if (themeText) themeText.textContent = 'Dark';
     }
+  }
+
+  updateSettlementRecipient(personId: string): void {
+    if (!this.currentBillId) return;
+
+    const bill = this.calculator.getBill(this.currentBillId);
+    const nextRecipientId = personId || null;
+    if (!bill || bill.settlementRecipientId === nextRecipientId) {
+      return;
+    }
+
+    this.recordHistorySnapshot();
+    this.calculator.setSettlementRecipient(this.currentBillId, nextRecipientId);
+    this.updateSummaryTable();
+    this.saveDraftState();
+    this.showToast(nextRecipientId ? 'Settlement collector updated' : 'Settlement collector cleared');
   }
 
   createNewBill(): void {
@@ -2888,7 +3080,7 @@ export class BillCalculatorUI {
 
     this.recordHistorySnapshot();
     this.calculator.togglePersonAsDivider(this.currentBillId, itemId, personId);
-    this.updateSummaryTable();
+    this.updateSummaryTable(`checkbox_${personId}_${itemId}`);
     this.saveDraftState();
   }
 
@@ -2955,11 +3147,12 @@ export class BillCalculatorUI {
     }).join('');
   }
 
-  private updateSummaryTable(): void {
+  private updateSummaryTable(focusElementId?: string): void {
     if (!this.currentBillId) return;
 
     const bill = this.calculator.getBill(this.currentBillId);
     const preservedScrollLeft = this.getSummaryTableScrollLeft();
+    const preservedWindowScrollY = window.scrollY;
     const summaryTable = document.getElementById('summaryTable')!;
     const addPersonBtn = document.getElementById('addPersonBtn')!;
     const addItemBtn = document.getElementById('addItemBtn')!;
@@ -3024,38 +3217,8 @@ export class BillCalculatorUI {
     exportBtn.style.display = 'inline-block';
     exportPdfBtn.style.display = 'inline-block';
 
-    // Create matrix data structure
-    const matrix: { [personId: string]: { [itemId: string]: number } } = {};
-    const itemTotals: { [itemId: string]: number } = {};
-    const personTotals: { [personId: string]: number } = {};
-
-    // Initialize matrix and totals
-    bill.persons.forEach(person => {
-      matrix[person.id] = {};
-      personTotals[person.id] = 0;
-      bill.items.forEach(item => {
-        matrix[person.id][item.id] = 0;
-        if (!itemTotals[item.id]) {
-          itemTotals[item.id] = 0;
-        }
-      });
-    });
-
-    // Fill matrix with calculated amounts
-    bill.items.forEach(item => {
-      if (item.dividers.length > 0) {
-        const splitAmount = item.price / item.dividers.length;
-        item.dividers.forEach(personId => {
-          if (matrix[personId]) {
-            matrix[personId][item.id] = splitAmount;
-            personTotals[personId] += splitAmount;
-            itemTotals[item.id] += splitAmount;
-          }
-        });
-      }
-    });
-
-    const grandTotal = Object.values(personTotals).reduce((sum, total) => sum + total, 0);
+    const { matrix, itemTotals, personTotals, grandTotal } = this.calculateSummaryMatrix(bill);
+    const settlementMarkup = this.renderSettlementCard(bill, personTotals);
 
     summaryTable.innerHTML = `
       ${overviewMarkup}
@@ -3148,6 +3311,7 @@ export class BillCalculatorUI {
           </div>
         </div>
       </div>
+      ${settlementMarkup}
       ${this.renderMobileSummaryCards(bill, personTotals)}
     `;
 
@@ -3158,6 +3322,11 @@ export class BillCalculatorUI {
       this.restoreSummaryTableScrollLeft(preservedScrollLeft);
       this.syncSummaryTableRowHeights();
       this.restoreSummaryTableScrollLeft(preservedScrollLeft);
+      if (focusElementId) {
+        const focusTarget = document.getElementById(focusElementId) as HTMLInputElement | null;
+        focusTarget?.focus({ preventScroll: true });
+      }
+      window.scrollTo({ top: preservedWindowScrollY, behavior: 'auto' });
     });
 
   }
