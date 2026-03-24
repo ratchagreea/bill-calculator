@@ -1,22 +1,22 @@
 import { BillCalculator } from './BillCalculator';
 import { Bill, PersonSummary } from './types';
 
+type BillImportMode = 'merge' | 'replace';
+
 interface SavedDraftState {
-  version: 1;
+  version: number;
   currentBillId: string | null;
   bills: Bill[];
 }
 
 interface BillTransferFile {
-  version: 1;
-  source: 'bill-calculator';
+  version: number;
+  source: string;
   exportType: 'single-bill' | 'bill-list';
   exportedAt: string;
   currentBillId: string | null;
   bills: Bill[];
 }
-
-type BillImportMode = 'merge' | 'replace';
 
 interface BillImportPreviewEntry {
   billId: string;
@@ -121,9 +121,6 @@ export class BillCalculatorUI {
               <div class="summary-header">
                 <h3>Payment Summary & Management</h3>
                 <div class="action-buttons">
-                  <button id="toggleUnassignedFilterBtn" class="btn btn-secondary" onclick="billUI.toggleUnassignedItemsFilter()" style="display: none;">
-                    Show Unassigned Only
-                  </button>
                   <button id="assignAllUnassignedBtn" class="btn btn-secondary" onclick="billUI.assignAllUnassignedItems()" style="display: none;">
                     Assign All Unassigned
                   </button>
@@ -818,42 +815,6 @@ export class BillCalculatorUI {
           background: var(--table-total-bg);
           border-color: var(--table-total-bg);
           color: var(--table-total-text);
-        }
-
-        .warning-banner {
-          margin-bottom: 18px;
-          padding: 16px 18px;
-          border-radius: 14px;
-          background: linear-gradient(180deg, rgba(255, 243, 205, 0.92), rgba(255, 248, 230, 0.98));
-          border: 1px solid #f2c46d;
-          box-shadow: 0 10px 18px var(--shadow);
-        }
-
-        [data-theme="dark"] .warning-banner {
-          background: linear-gradient(180deg, rgba(120, 73, 15, 0.34), rgba(79, 49, 12, 0.44));
-          border-color: #b7791f;
-        }
-
-        .warning-banner-title {
-          margin: 0 0 6px 0;
-          color: #8a5a00;
-          font-size: 16px;
-          font-weight: 800;
-        }
-
-        [data-theme="dark"] .warning-banner-title {
-          color: #f6ad55;
-        }
-
-        .warning-banner-text {
-          margin: 0;
-          color: #6b4b07;
-          font-size: 13px;
-          line-height: 1.6;
-        }
-
-        [data-theme="dark"] .warning-banner-text {
-          color: #fbd38d;
         }
 
         .settlement-card {
@@ -1939,25 +1900,6 @@ export class BillCalculatorUI {
 
         .summary-table-header-cell.is-unassigned small {
           color: inherit !important;
-        }
-
-        .summary-table-header-badge {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          margin-top: 6px;
-          padding: 3px 8px;
-          border-radius: 999px;
-          background: rgba(111, 74, 0, 0.14);
-          color: inherit;
-          font-size: 10px;
-          font-weight: 800;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-        }
-
-        [data-theme="dark"] .summary-table-header-badge {
-          background: rgba(251, 211, 141, 0.16);
         }
 
         .summary-header-cell-content {
@@ -3446,22 +3388,6 @@ export class BillCalculatorUI {
           <div class="charges-pill">Tip: $${tipAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           <div class="charges-pill charges-pill-total">Final Total: $${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
         </div>
-      </div>
-    `;
-  }
-
-  private renderUnassignedWarning(bill: Bill): string {
-    const { unassignedItemsTotal } = this.calculateBillChargeTotals(bill);
-    if (unassignedItemsTotal <= 0.009) {
-      return '';
-    }
-
-    const unassignedItemsCount = bill.items.filter(item => item.dividers.length === 0).length;
-
-    return `
-      <div class="warning-banner">
-        <h4 class="warning-banner-title">Unassigned items are excluded from the split</h4>
-        <p class="warning-banner-text">${unassignedItemsCount} item(s) worth $${unassignedItemsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} are not assigned to anyone yet. They are excluded from the split total, charges, settlement instructions, and export summary until at least one person is selected for each item.</p>
       </div>
     `;
   }
@@ -5595,9 +5521,7 @@ export class BillCalculatorUI {
     if (!this.currentBillId) return;
 
     const bill = this.calculator.getBill(this.currentBillId);
-    if (bill && this.showOnlyUnassignedItems && !bill.items.some(item => item.dividers.length === 0)) {
-      this.showOnlyUnassignedItems = false;
-    }
+    this.showOnlyUnassignedItems = false;
     const preservedScrollLeft = this.getSummaryTableScrollLeft();
     const preservedWindowScrollY = window.scrollY;
     const summaryTable = document.getElementById('summaryTable')!;
@@ -5622,13 +5546,11 @@ export class BillCalculatorUI {
     }
 
     const unassignedItems = bill.items.filter(item => item.dividers.length === 0);
-    const visibleItems = this.showOnlyUnassignedItems ? unassignedItems : bill.items;
+    const visibleItems = bill.items;
 
     // Always show all buttons when bill is selected
     if (toggleUnassignedFilterBtn) {
-      toggleUnassignedFilterBtn.style.display = bill.items.length > 0 ? 'inline-flex' : 'none';
-      toggleUnassignedFilterBtn.textContent = this.showOnlyUnassignedItems ? 'Show All Items' : 'Show Unassigned Only';
-      toggleUnassignedFilterBtn.disabled = unassignedItems.length === 0;
+      toggleUnassignedFilterBtn.style.display = 'none';
     }
     if (assignAllUnassignedBtn) {
       assignAllUnassignedBtn.style.display = bill.items.length > 0 ? 'inline-flex' : 'none';
@@ -5638,7 +5560,6 @@ export class BillCalculatorUI {
     addItemBtn.style.display = 'inline-block';
 
     const overviewMarkup = this.renderBillOverview(bill);
-    const unassignedWarningMarkup = this.renderUnassignedWarning(bill);
 
     // if (bill.items.length === 0) {
     //   summaryTable.innerHTML = `
@@ -5654,7 +5575,6 @@ export class BillCalculatorUI {
     if (bill.persons.length === 0) {
       summaryTable.innerHTML = `
         ${overviewMarkup}
-        ${unassignedWarningMarkup}
         ${this.renderEmptyWorkflowState(
           'Start by adding people',
           'This bill is ready, but there is nobody to split it with yet.',
@@ -5670,7 +5590,6 @@ export class BillCalculatorUI {
     if (bill.items.length === 0) {
       summaryTable.innerHTML = `
         ${overviewMarkup}
-        ${unassignedWarningMarkup}
         ${this.renderEmptyWorkflowState(
           'Add items to calculate totals',
           'People are ready. Add food, drinks, fees, or any shared cost to begin splitting.',
@@ -5694,7 +5613,6 @@ export class BillCalculatorUI {
 
     summaryTable.innerHTML = `
       ${overviewMarkup}
-      ${unassignedWarningMarkup}
       ${chargesMarkup}
       <div class="summary-table-container">
         <div class="summary-table-header-shell">
@@ -5715,7 +5633,6 @@ export class BillCalculatorUI {
                         ${item.name}<br>
                         <small style="font-weight: normal; color: var(--text-secondary);">($${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</small><br>
                         <small style="font-weight: normal; color: var(--text-secondary);">${item.dividers.length} ${item.dividers.length === 1 ? 'person' : 'people'}</small>
-                        ${item.dividers.length === 0 ? '<div class="summary-table-header-badge">Unassigned</div>' : ''}
                       </div>
                       <div class="item-header-actions">
                           <button class="item-action-btn item-action-edit" onclick="billUI.editItem('${item.id}')" title="Edit ${item.name}">
